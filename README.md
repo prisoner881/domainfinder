@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9**. Every run starts by printing `domainfinder 0.9` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.1** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.1` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Only free sources are used today. Paid providers (SecurityTrails, WhoisXML API, DomainTools) are built in as switched-off stubs. Each one turns on once its API key is configured.
 
@@ -36,7 +36,35 @@ domainfinder adp.com --min-score 80          # stricter main list
 domainfinder adp.com -v                      # also show rejected domains, sources and notes
 domainfinder adp.com --org "Automatic Data Processing, Inc."   # set the legal name yourself
 domainfinder adp.com --candidate elabor.com  # verify extra domains you already suspect
+domainfinder adp.com --import found.csv      # also verify domains found by other processes
 domainfinder --list-sources                  # which sources are on, and why others are off
+```
+
+### Importing candidate domains
+
+`--import FILE` adds domains that other processes found — an asset inventory, a
+spreadsheet, another tool's output — as candidates. They are checked exactly like
+the domains domainfinder discovers itself, so an imported domain reaches the main
+list only on evidence.
+
+* Entries are separated by commas and/or newlines, so a one-line list, one domain
+  per line, or a simple CSV export all work. CSV quoting is understood and `#`
+  starts a comment.
+* URLs and host names are reduced to their registrable domain
+  (`https://mail.example.co.uk/x` → `example.co.uk`); duplicates are merged;
+  entries that are not domain names (a header line, an IP address) are skipped
+  and reported.
+* `--import` can be repeated, and `--import -` reads standard input. `--candidate`
+  also takes comma-separated lists for a few domains on the command line.
+* Imported domains carry the source `import` in the output and are never dropped
+  by `--max-candidates`.
+
+```
+cat found.csv
+# from the asset inventory
+adpworld.de, workforcenow.com
+https://www.celergo.com/about
+domainfinder adp.com --import found.csv
 ```
 
 ### Internationalized domain names

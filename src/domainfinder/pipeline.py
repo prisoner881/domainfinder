@@ -23,7 +23,7 @@ from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
 log = logging.getLogger(__name__)
 
 # When there are more candidates than --max-candidates, verify these first.
-SOURCE_PRIORITY = ["manual", "crtsh-org", "seed-links", "cctld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
+SOURCE_PRIORITY = ["manual", "import", "crtsh-org", "seed-links", "cctld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
 
 
 @dataclass
@@ -88,6 +88,8 @@ async def run(
     only_sources: list[str] | None = None,
     skip_sources: list[str] | None = None,
     extra_candidates: list[str] | None = None,
+    imported_candidates: list[tuple[str, str]] | None = None,
+    import_notes: list[str] | None = None,
     max_candidates: int = 1000,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> RunReport:
@@ -99,14 +101,15 @@ async def run(
                             whois=settings.whois)
     try:
         return await _run(seed, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
-                          skip_sources or [], extra_candidates or [], max_candidates, progress)
+                          skip_sources or [], extra_candidates or [], imported_candidates or [],
+                          import_notes or [], max_candidates, progress)
     finally:
         await http.aclose()
         cache.close()
 
 
 async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources, skip_sources,
-               extra_candidates, max_candidates, progress) -> RunReport:
+               extra_candidates, imported_candidates, import_notes, max_candidates, progress) -> RunReport:
     def tick(stage: str, done: int = 0, total: int = 0):
         if progress:
             progress(stage, done, total)
@@ -173,13 +176,23 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
         rd = registrable(d)
         if rd and rd != seed:
             merged.setdefault(rd, Candidate(domain=rd)).add_source("manual", "given with --candidate")
+    # Domains found by other processes: verified exactly like discovered ones.
+    for d, origin in imported_candidates:
+        rd = registrable(d)
+        if rd and rd != seed:
+            merged.setdefault(rd, Candidate(domain=rd)).add_source("import", f"imported from {origin}")
+    ctx.notes[:0] = import_notes
     merged.pop(seed, None)
 
     cands = sorted(merged.values(), key=_priority)
     total = len(cands)
     if len(cands) > max_candidates:
-        ctx.notes.append(f"verifying the first {max_candidates} of {len(cands)} candidates (--max-candidates)")
-        cands = cands[:max_candidates]
+        given = [c for c in cands if {"manual", "import"} & set(c.sources)]
+        found = [c for c in cands if not {"manual", "import"} & set(c.sources)]
+        keep = max(0, max_candidates - len(given))
+        ctx.notes.append(f"verifying {len(given)} given/imported + the first {keep} of {len(found)} discovered "
+                         f"candidates (--max-candidates)")
+        cands = given + found[:keep]
 
     sem = asyncio.Semaphore(max(1, settings.concurrency))
     done = 0

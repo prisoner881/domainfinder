@@ -32,7 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--org", action="append", default=[],
                    help="the seed's legal organization name (repeatable); otherwise derived from TLS/CT/RDAP")
     p.add_argument("--brand", action="append", default=[], help="extra brand label for ccTLD permutations (repeatable)")
-    p.add_argument("--candidate", action="append", default=[], help="also verify this domain (repeatable)")
+    p.add_argument("--candidate", action="append", default=[],
+                   help="also verify this domain; comma-separated lists allowed (repeatable)")
+    p.add_argument("--import", dest="import_files", action="append", default=[], metavar="FILE",
+                   help="import candidate domains found by other processes: comma- and/or newline-separated, "
+                        "'#' comments allowed, '-' for stdin; each is verified like any discovered domain "
+                        "(repeatable)")
     p.add_argument("--sources", help="comma-separated list of sources to use (see --list-sources)")
     p.add_argument("--skip", default="", help="comma-separated list of sources to skip")
     p.add_argument("--no-hackertarget", action="store_true", help="do not use HackerTarget's free quota")
@@ -114,6 +119,26 @@ def main(argv: list[str] | None = None) -> int:
     from .pipeline import run
     from .report import print_table, to_csv, to_json
 
+    from .candidates_io import parse_domain_list, read_domain_file
+
+    manual: list[str] = []
+    for value in args.candidate:
+        res = parse_domain_list(value, "--candidate")
+        manual += res.domains
+        for bad in res.invalid:
+            err.print(f"[yellow]--candidate: skipping '{bad}' (not a domain name)[/yellow]")
+    imported: list[tuple[str, str]] = []
+    import_notes: list[str] = []
+    for path in args.import_files:
+        try:
+            res = read_domain_file(path)
+        except OSError as e:
+            err.print(f"[red]--import: cannot read {path}: {e.strerror or e}[/red]")
+            return 2
+        imported += [(d, res.source) for d in res.domains]
+        import_notes.append(res.summary())
+        err.print(res.summary())
+
     only = [s.strip() for s in args.sources.split(",")] if args.sources else None
     skip = [s.strip() for s in args.skip.split(",") if s.strip()]
 
@@ -131,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
             status.start()
         rep = asyncio.run(run(
             seed, settings, user_orgs=args.org, extra_brands=args.brand, only_sources=only,
-            skip_sources=skip, extra_candidates=args.candidate, max_candidates=args.max_candidates,
+            skip_sources=skip, extra_candidates=manual, imported_candidates=imported,
+            import_notes=import_notes, max_candidates=args.max_candidates,
             progress=progress,
         ))
     except KeyboardInterrupt:
