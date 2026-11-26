@@ -8,7 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import BANNER
 from .config import Settings
 from .domains import registrable
 
@@ -16,7 +16,8 @@ from .domains import registrable
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="domainfinder",
-        description="Find more domains owned by the company behind a seed domain, each backed by evidence.",
+        description=f"{BANNER}: find more domains owned by the company behind a seed domain, "
+                    "each backed by evidence.",
     )
     p.add_argument("domain", nargs="?", help="seed root domain, e.g. adp.com")
     p.add_argument("-o", "--output", type=Path, help="also write results to this file (.csv or .json)")
@@ -47,12 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "CSV and JSON always carry both in domain_unicode / domain_ascii")
     p.add_argument("--list-sources", action="store_true", help="list candidate sources and whether they are on")
     p.add_argument("--debug", action="store_true", help="debug logging to stderr")
-    p.add_argument("--version", action="version", version=f"domainfinder {__version__}")
+    p.add_argument("--version", action="version", version=BANNER)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # Announce name and version on every run (stderr keeps --json output clean).
+    print(BANNER, file=sys.stderr, flush=True)
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",

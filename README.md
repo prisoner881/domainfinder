@@ -8,6 +8,8 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
+Current version: **0.9**. Every run starts by printing `domainfinder 0.9` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+
 Only free sources are used today. Paid providers (SecurityTrails, WhoisXML API, DomainTools) are built in as switched-off stubs. Each one turns on once its API key is configured.
 
 ## Results for `adp.com`

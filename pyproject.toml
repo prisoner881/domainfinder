@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "domainfinder"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Find additional domains owned by the same company as a seed domain, with evidence."
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,6 +24,9 @@ dev = ["pytest>=8", "respx>=0.21"]
 
 [project.scripts]
 domainfinder = "domainfinder.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "domainfinder.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -7,7 +7,7 @@ import io
 import json
 from datetime import datetime, timezone
 
-from . import __version__
+from . import BANNER
 from .domains import display, humanize, to_ascii, to_unicode
 from .models import Classification, Result
 from .pipeline import RunReport
@@ -20,7 +20,7 @@ def to_json(rep: RunReport, include_rejected: bool = True, include_fingerprints:
 
     fp = rep.seed_fingerprint
     doc = {
-        "tool": f"domainfinder {__version__}",
+        "tool": BANNER,
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "seed": display(rep.seed, idn),
         "seed_ascii": to_ascii(rep.seed),
