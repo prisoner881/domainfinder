@@ -63,12 +63,14 @@ def derive_org_names(seed_fp: Fingerprint, ct_orgs: list[str], user_orgs: list[s
 
     for n in user_orgs:
         add(n)
-    if seed_fp.cert.subject_org and not data.is_shared_hosting_org(seed_fp.cert.subject_org):
+    if seed_fp.cert.subject_org and not data.is_shared_hosting_org(seed_fp.cert.subject_org) \
+            and not data.is_brand_registrar(seed_fp.cert.subject_org):
         add(seed_fp.cert.subject_org)
     for n in ct_orgs:
-        add(n)
+        if not data.is_brand_registrar(n):
+            add(n)
     r = seed_fp.rdap.registrant_org
-    if r and not data.is_privacy_proxy(r):
+    if r and not data.is_proxy_registrant(r, seed_fp.rdap.registrar):
         add(r)
     # A netblock registered to something that looks like the seed's name.
     for nb in seed_fp.netblocks:

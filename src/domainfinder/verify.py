@@ -220,7 +220,9 @@ class Scorer:
                 flags["different_org"] = flags["different_org"] or fp.cert.subject_org
                 add("different_org_cert", N, f"TLS certificate issued to {fp.cert.subject_org}")
         rorg = fp.rdap.registrant_org
-        if rorg and is_meaningful(rorg) and not data.is_privacy_proxy(rorg):
+        if rorg and is_meaningful(rorg) and data.is_proxy_registrant(rorg, fp.rdap.registrar):
+            add("proxy_registrant", I, f"RDAP registrant '{rorg}' is the registrar or a proxy; ignored", 0)
+        elif rorg and is_meaningful(rorg):
             if any_match(rorg, self.seed.org_names):
                 add("rdap_org", S, f"RDAP registrant {rorg}")
                 flags["registration_match"] = True
@@ -265,7 +267,13 @@ class Scorer:
             (sr.registrar_iana_id and sr.registrar_iana_id == cr.registrar_iana_id)
             or normalize(sr.registrar) == normalize(cr.registrar)
         )
-        same_region = bool(sr.region_key()) and sr.region_key() == cr.region_key()
+        # A proxy registrant (CSC's own name, DNStination, ...) comes with the
+        # proxy's address, so its region says nothing about the owner.
+        same_region = (
+            bool(sr.region_key()) and sr.region_key() == cr.region_key()
+            and not data.is_proxy_registrant(sr.registrant_org, sr.registrar)
+            and not data.is_proxy_registrant(cr.registrant_org, cr.registrar)
+        )
         brand_registrar = self.data.is_brand_registrar(cr.registrar)
         if same_registrar and same_region:
             flags["registration_match"] = True

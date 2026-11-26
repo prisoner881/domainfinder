@@ -198,3 +198,22 @@ def test_markmonitor_zone_nameservers_mark_a_held_domain():
     r = scorer().score(fp("marcusbuckingham.com", ns=["ha1.markmonitor.zone", "ha2.markmonitor.zone"], rdap=rdap()),
                        cand("marcusbuckingham.com"), set())
     assert r.status == "held/inactive" and r.classification is C.REVIEW
+
+
+def test_registrar_named_as_registrant_is_a_proxy_not_an_owner():
+    # CSC writes its own name and Delaware address into the registrant fields.
+    csc = dict(registrar="CSC Corporate Domains, Inc.", iana="299", region="DE",
+               org="CSC Corporate Domains, Inc.")
+    prof = SeedProfile.build(fp("globalpayments.com", rdap=rdap(**csc)), ["Global Payments Inc."], ["globalpayments"])
+    s = Scorer(prof)
+    r = s.score(fp("cscglobal.com", rdap=rdap(**csc)), cand("cscglobal.com"), set())
+    assert "rdap_org" not in kinds(r) and "different_org_rdap" not in kinds(r)
+    assert "proxy_registrant" in kinds(r) and "registrar_region" not in kinds(r)
+    assert r.classification is C.REJECTED
+
+
+def test_proxy_names_never_become_seed_org_names():
+    from domainfinder.pipeline import derive_org_names
+
+    seed = fp("globalpayments.com", rdap=rdap(registrar="CSC Corporate Domains, Inc.", org="CSC Corporate Domains, Inc."))
+    assert derive_org_names(seed, ["Global Payments"], [], "globalpayments") == ["Global Payments"]

@@ -175,7 +175,7 @@ Each file has one entry per line, and `#` starts a comment.
 
 * **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](docs/adp-sample-run.md) shows which source would have found each miss.
 * **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. Raw WHOIS (port 43) is not used.
-* **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner.
+* **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky** (502s on large queries) and caps a result set at 10,000 rows. Queries are retried and cached; failures show up under `-v` notes.
 * **Live TLS `O=` needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's, so that check yields nothing. The CT-log evidence (`crtsh-org`) still works.
 * **Bot protection** on some sites answers the homepage fetch with 403. The redirect chain up to that point is still used.

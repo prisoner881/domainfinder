@@ -77,6 +77,21 @@ class ReferenceData:
         n = (name or "").lower()
         return any(k in n for k in self.privacy_proxies)
 
+    def is_proxy_registrant(self, org: str, registrar: str = "") -> bool:
+        """A registrant name that is not the real owner: a privacy service, the
+        registrar's own name (CSC writes "CSC Corporate Domains, Inc." into the
+        registrant field of domains it manages), or any brand-protection
+        registrar's name."""
+        if not org:
+            return False
+        if self.is_privacy_proxy(org) or self.is_brand_registrar(org):
+            return True
+        if registrar:
+            from ..orgnames import same_org
+
+            return same_org(org, registrar)
+        return False
+
     def has_parking_marker(self, html: str) -> str | None:
         h = (html or "").lower()
         for m in self.parking_markers:

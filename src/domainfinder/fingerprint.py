@@ -72,6 +72,6 @@ def org_names_of(fp: Fingerprint) -> list[str]:
     if fp.cert.subject_org and is_meaningful(fp.cert.subject_org):
         names.append(fp.cert.subject_org)
     for n in (fp.rdap.registrant_org,):
-        if n and is_meaningful(n) and not data.is_privacy_proxy(n) and n not in names:
+        if n and is_meaningful(n) and not data.is_proxy_registrant(n, fp.rdap.registrar) and n not in names:
             names.append(n)
     return names
