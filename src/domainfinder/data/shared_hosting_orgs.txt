@@ -1,0 +1,61 @@
+# Netblock owner names (case-insensitive substrings) of clouds, CDNs and
+# hosting companies. An IP in one of their netblocks says nothing about who
+# owns the domain.
+amazon
+aws
+akamai
+cloudflare
+google
+microsoft
+azure
+fastly
+incapsula
+imperva
+oracle
+digitalocean
+digital ocean
+linode
+ovh
+hetzner
+godaddy
+go daddy
+wpengine
+wp engine
+shopify
+squarespace
+wix.com
+automattic
+rackspace
+ibm
+softlayer
+alibaba
+tencent
+edgecast
+verizon digital
+limelight
+stackpath
+highwinds
+zayo
+level 3
+lumen
+centurylink
+cogent
+hurricane electric
+leaseweb
+contabo
+ionos
+1&1
+strato
+vultr
+choopa
+salesforce
+heroku
+github
+netlify
+vercel
+sucuri
+zscaler
+cdn77
+bunny
+sedo
+markmonitor

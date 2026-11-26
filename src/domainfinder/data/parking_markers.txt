@@ -1,0 +1,15 @@
+# Phrases (case-insensitive) that mark a parking or for-sale page.
+this domain is for sale
+this domain may be for sale
+buy this domain
+domain is parked
+domain has been registered
+parked free, courtesy of
+is available for purchase
+make an offer on this domain
+the domain owner may be interested in selling
+sedoparking
+parkingcrew
+bodis.com
+hugedomains.com
+afternic

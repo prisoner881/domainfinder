@@ -1,0 +1,33 @@
+# MX hosts shared by many customers. An MX host under these domains is only
+# evidence when it carries a customer-specific tenant ID (see mailtenant
+# patterns in the code) — otherwise it is ignored.
+google.com
+googlemail.com
+outlook.com
+office365.us
+pphosted.com
+ppe-hosted.com
+mimecast.com
+mimecast.co.za
+messagelabs.com
+iphmx.com
+barracudanetworks.com
+trendmicro.com
+trendmicro.eu
+mailgun.org
+sendgrid.net
+amazonaws.com
+zoho.com
+zoho.eu
+secureserver.net
+emailsrvr.com
+protonmail.ch
+icloud.com
+yandex.net
+mail.ru
+mailcontrol.com
+forcepoint.com
+sophos.com
+hornetsecurity.com
+spamexperts.com
+mailanyone.net

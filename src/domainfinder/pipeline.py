@@ -1,0 +1,206 @@
+"""Orchestration: fingerprint the seed → gather candidates → verify → classify."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from typing import Callable
+
+from .cache import Cache
+from .collectors.rdap import RdapClient
+from .config import Settings
+from .dns import Resolver
+from .domains import label, registrable
+from .fingerprint import Collectors, fingerprint
+from .http import Http
+from .models import Candidate, Classification, Fingerprint, Result
+from .orgnames import is_meaningful, same_org
+from .sources import ALL_SOURCES, Source, SourceContext
+from .sources.crtsh import seed_org_from_ct
+from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
+
+log = logging.getLogger(__name__)
+
+# When there are more candidates than --max-candidates, verify these first.
+SOURCE_PRIORITY = ["manual", "crtsh-org", "seed-links", "cctld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
+
+
+@dataclass
+class RunReport:
+    seed: str
+    seed_fingerprint: Fingerprint
+    org_names: list[str]
+    brand_labels: list[str]
+    sources_used: list[str]
+    sources_disabled: dict[str, str]
+    notes: list[str]
+    results: list[Result]
+    candidates_total: int
+    candidates_verified: int
+    http_stats: dict[str, int] = field(default_factory=dict)
+
+    def by_class(self, cls: Classification) -> list[Result]:
+        return sorted(
+            (r for r in self.results if r.classification is cls), key=lambda r: (-r.score, r.domain)
+        )
+
+
+def _priority(c: Candidate) -> tuple:
+    ranks = [SOURCE_PRIORITY.index(s) if s in SOURCE_PRIORITY else 99 for s in c.sources]
+    return (min(ranks) if ranks else 99, -len(c.sources), c.domain)
+
+
+def derive_org_names(seed_fp: Fingerprint, ct_orgs: list[str], user_orgs: list[str], brand: str) -> list[str]:
+    from .data import load as load_data
+
+    data = load_data()
+    names: list[str] = []
+
+    def add(n: str):
+        if n and is_meaningful(n) and n.strip() not in names:
+            names.append(n.strip())
+
+    for n in user_orgs:
+        add(n)
+    if seed_fp.cert.subject_org and not data.is_shared_hosting_org(seed_fp.cert.subject_org):
+        add(seed_fp.cert.subject_org)
+    for n in ct_orgs:
+        add(n)
+    r = seed_fp.rdap.registrant_org
+    if r and not data.is_privacy_proxy(r):
+        add(r)
+    # A netblock registered to something that looks like the seed's name.
+    for nb in seed_fp.netblocks:
+        if nb.org and not data.is_shared_hosting_org(nb.org) and plausible_org_for_label(nb.org, brand):
+            add(nb.org)
+    return names
+
+
+async def run(
+    seed: str,
+    settings: Settings,
+    *,
+    user_orgs: list[str] | None = None,
+    extra_brands: list[str] | None = None,
+    only_sources: list[str] | None = None,
+    skip_sources: list[str] | None = None,
+    extra_candidates: list[str] | None = None,
+    max_candidates: int = 1000,
+    progress: Callable[[str, int, int], None] | None = None,
+) -> RunReport:
+    seed = registrable(seed) or seed
+    cache = Cache(settings.cache_dir / "cache.sqlite", settings.cache_ttl_hours * 3600, enabled=settings.use_cache)
+    http = Http(cache=cache, timeout=settings.http_timeout)
+    resolver = Resolver(http, cache=cache, mode=settings.dns_mode)
+    collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check)
+    try:
+        return await _run(seed, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
+                          skip_sources or [], extra_candidates or [], max_candidates, progress)
+    finally:
+        await http.aclose()
+        cache.close()
+
+
+async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources, skip_sources,
+               extra_candidates, max_candidates, progress) -> RunReport:
+    def tick(stage: str, done: int = 0, total: int = 0):
+        if progress:
+            progress(stage, done, total)
+
+    tick("fingerprinting seed")
+    seed_fp = await fingerprint(seed, collectors)
+    brand = label(seed)
+    brand_labels = [brand] + [b.lower() for b in extra_brands if b and b.lower() != brand]
+    if "-" in brand:
+        first = brand.split("-", 1)[0]
+        if len(first) >= 3 and first not in brand_labels:
+            brand_labels.append(first)
+
+    ct_orgs: list[str] = []
+    if not user_orgs and not seed_fp.cert.subject_org:
+        tick("looking up the seed's organization in CT logs")
+        ct_orgs = await seed_org_from_ct(collectors.http, seed, settings.crtsh_timeout)
+    org_names = derive_org_names(seed_fp, ct_orgs, user_orgs, brand)
+    seed_fp.org_names = org_names
+
+    ctx = SourceContext(seed=seed_fp, settings=settings, collectors=collectors,
+                        org_names=org_names, brand_labels=brand_labels)
+    sources: list[Source] = [cls(settings) for cls in ALL_SOURCES]
+    used, disabled = [], {}
+    active = []
+    for s in sources:
+        if only_sources and s.name not in only_sources:
+            disabled[s.name] = "not selected"
+        elif s.name in skip_sources:
+            disabled[s.name] = "skipped on the command line"
+        elif not s.enabled():
+            disabled[s.name] = s.disabled_reason()
+        else:
+            active.append(s)
+            used.append(s.name)
+
+    tick("gathering candidates")
+
+    async def safe(s: Source):
+        try:
+            return await s.candidates(ctx)
+        except Exception as e:  # a broken source must not sink the run
+            log.exception("source %s failed", s.name)
+            ctx.notes.append(f"{s.name}: failed ({type(e).__name__}: {e})")
+            return []
+
+    # Reverse-NS providers can tell us when the seed's NS set is mass-used.
+    ns_shared = False
+    for s in active:
+        for h in seed_fp.ns[:2]:
+            n = await s.ns_usage(h)
+            if n is not None and n > settings.shared_ns_threshold:
+                ns_shared = True
+                ctx.notes.append(f"{s.name}: {h} serves {n} domains → NS set treated as shared")
+
+    merged: dict[str, Candidate] = {}
+    for found in await asyncio.gather(*(safe(s) for s in active)):
+        for c in found:
+            m = merged.setdefault(c.domain, Candidate(domain=c.domain))
+            for k, v in c.sources.items():
+                m.add_source(k, v)
+            m.hints.extend(c.hints)
+    for d in extra_candidates:
+        rd = registrable(d)
+        if rd and rd != seed:
+            merged.setdefault(rd, Candidate(domain=rd)).add_source("manual", "given with --candidate")
+    merged.pop(seed, None)
+
+    cands = sorted(merged.values(), key=_priority)
+    total = len(cands)
+    if len(cands) > max_candidates:
+        ctx.notes.append(f"verifying the first {max_candidates} of {len(cands)} candidates (--max-candidates)")
+        cands = cands[:max_candidates]
+
+    sem = asyncio.Semaphore(max(1, settings.concurrency))
+    done = 0
+
+    async def fp_one(c: Candidate) -> tuple[Fingerprint, Candidate]:
+        nonlocal done
+        async with sem:
+            try:
+                fp = await fingerprint(c.domain, collectors)
+            except Exception as e:
+                log.exception("fingerprint %s failed", c.domain)
+                fp = Fingerprint(domain=c.domain, errors=[f"{type(e).__name__}: {e}"])
+        done += 1
+        tick("verifying candidates", done, len(cands))
+        return fp, c
+
+    items = await asyncio.gather(*(fp_one(c) for c in cands))
+    profile = SeedProfile.build(seed_fp, org_names, brand_labels)
+    profile.ns_shared_override = ns_shared
+    scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
+                    ctx.ct_org_domains, ctx.subsidiary_names)
+    results = score_all(scorer, list(items))
+    return RunReport(
+        seed=seed, seed_fingerprint=seed_fp, org_names=org_names, brand_labels=brand_labels,
+        sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,
+        candidates_total=total, candidates_verified=len(cands), http_stats=dict(collectors.http.stats),
+    )

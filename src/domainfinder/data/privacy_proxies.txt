@@ -1,0 +1,26 @@
+# Registrant names/orgs (case-insensitive substrings) that are privacy
+# services or redaction placeholders, not the real owner.
+dnstination
+domains by proxy
+whois privacy
+whoisguard
+privacy service
+contact privacy
+withheld for privacy
+redacted
+data protected
+statutory masking
+identity protection
+perfect privacy
+super privacy
+privacyguardian
+gdpr
+not disclosed
+domain protection services
+private registration
+registration private
+on behalf of
+proxy
+anonymize
+non-public data
+please query the rdds

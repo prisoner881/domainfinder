@@ -1,0 +1,77 @@
+"""Settings from environment variables (and an optional .env file)."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def _int(name: str, default: int) -> int:
+    try:
+        return int(_env(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _bool(name: str, default: bool) -> bool:
+    v = _env(name, "1" if default else "0").lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def default_cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "domainfinder"
+
+
+@dataclass
+class Settings:
+    dns_mode: str = "auto"
+    cache_dir: Path = field(default_factory=default_cache_dir)
+    cache_ttl_hours: int = 24
+    use_cache: bool = True
+    concurrency: int = 12
+    high_threshold: int = 70
+    review_threshold: int = 40
+    http_timeout: float = 20.0
+    hackertarget: bool = True
+    shared_ns_threshold: int = 5000
+    sec_user_agent: str = ""
+    viewdns_key: str = field(default="", repr=False)
+    securitytrails_key: str = field(default="", repr=False)
+    whoisxml_key: str = field(default="", repr=False)
+    domaintools_user: str = field(default="", repr=False)
+    domaintools_key: str = field(default="", repr=False)
+    tls_check: bool = True
+    crtsh_timeout: float = 120.0
+
+    @classmethod
+    def from_env(cls, load_dotenv_file: bool = True) -> "Settings":
+        if load_dotenv_file:
+            try:
+                from dotenv import load_dotenv
+
+                load_dotenv(override=False)
+            except ImportError:  # pragma: no cover - optional
+                pass
+        cache_dir = _env("DOMAINFINDER_CACHE_DIR")
+        return cls(
+            dns_mode=_env("DOMAINFINDER_DNS_MODE", "auto") or "auto",
+            cache_dir=Path(cache_dir) if cache_dir else default_cache_dir(),
+            cache_ttl_hours=_int("DOMAINFINDER_CACHE_TTL_HOURS", 24),
+            concurrency=_int("DOMAINFINDER_CONCURRENCY", 12),
+            high_threshold=_int("DOMAINFINDER_HIGH_THRESHOLD", 70),
+            review_threshold=_int("DOMAINFINDER_REVIEW_THRESHOLD", 40),
+            hackertarget=_bool("DOMAINFINDER_HACKERTARGET", True),
+            shared_ns_threshold=_int("DOMAINFINDER_SHARED_NS_THRESHOLD", 5000),
+            sec_user_agent=_env("DOMAINFINDER_SEC_USER_AGENT"),
+            viewdns_key=_env("VIEWDNS_API_KEY"),
+            securitytrails_key=_env("SECURITYTRAILS_API_KEY"),
+            whoisxml_key=_env("WHOISXML_API_KEY"),
+            domaintools_user=_env("DOMAINTOOLS_API_USERNAME"),
+            domaintools_key=_env("DOMAINTOOLS_API_KEY"),
+        )

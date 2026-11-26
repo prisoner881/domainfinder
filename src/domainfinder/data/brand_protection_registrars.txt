@@ -1,0 +1,20 @@
+# Corporate / brand-protection registrars (case-insensitive substrings of
+# the registrar name). A shared registrar only corroborates ownership when
+# it is one of these and the registrant region also matches.
+markmonitor
+csc corporate domains
+corporation service company
+com laude
+safenames
+corsearch
+brandsight
+godaddy corporate domains
+lexsynergy
+nom-iq
+ascio
+cscglobal
+abion
+key-systems
+gandi corporate
+clarivate
+101domain

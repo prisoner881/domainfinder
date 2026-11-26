@@ -1,0 +1,157 @@
+"""Certificate Transparency via crt.sh: by organization name and by seed domain."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+
+from ..domains import registrable
+from ..http import Http
+from ..models import Candidate
+from ..orgnames import same_org
+from .base import CtOrgHit, Source, SourceContext, make_candidates
+
+log = logging.getLogger(__name__)
+
+CRTSH = "https://crt.sh/"
+CT_TTL = 3 * 86400
+# Issuers that only do domain validation never carry O=; skip them when
+# looking for the seed's organization name.
+DV_ISSUERS = re.compile(r"let's encrypt|letsencrypt|zerossl|\bR3\b|\bE[1-9]\b|\bR1[0-4]\b|domain validat|\bDV\b|"
+                        r"cpanel|amazon|google trust|gts ca|cloudflare", re.I)
+
+
+async def crtsh_json(http: Http, params: dict[str, str], timeout: float) -> list[dict] | None:
+    params = {**params, "output": "json"}
+    r = await http.get(CRTSH, params=params, ttl=CT_TTL, timeout=timeout, retries=3)
+    if not r.ok:
+        log.warning("crt.sh %s failed: %s", params, r.status or r.error)
+        return None
+    try:
+        data = json.loads(r.text) if r.text.strip() else []
+    except ValueError:
+        log.warning("crt.sh %s returned non-JSON", params)
+        return None
+    return data if isinstance(data, list) else None
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_dt(s: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(s.replace("Z", "")).replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def collect_org_hits(rows: list[dict], org_names: list[str], hits: dict[str, CtOrgHit], current_window_days: int = 400) -> None:
+    cutoff = _now() - timedelta(days=current_window_days)
+    for row in rows:
+        o = str(row.get("name_value") or "")
+        if org_names and not any(same_org(o, n) for n in org_names):
+            continue  # crt.sh's O= search is fuzzy; keep only real matches
+        cn = str(row.get("common_name") or "")
+        rd = registrable(cn)
+        if not rd:
+            continue
+        h = hits.setdefault(rd, CtOrgHit(org=o.strip()))
+        h.count += 1
+        na = str(row.get("not_after") or "")
+        if na > h.latest_not_after:
+            h.latest_not_after = na
+        dt = _parse_dt(na)
+        if dt and dt >= cutoff:
+            h.current = True
+
+
+class CrtshOrgSource(Source):
+    name = "crtsh-org"
+    description = "crt.sh: certificates whose Subject O= is the seed's organization"
+
+    async def candidates(self, ctx: SourceContext) -> list[Candidate]:
+        if not ctx.org_names:
+            ctx.notes.append("crtsh-org: no organization name known for the seed (use --org)")
+            return []
+        hits: dict[str, CtOrgHit] = {}
+        for org in ctx.org_names[:3]:
+            for extra in ({"exclude": "expired"}, {}):
+                rows = await crtsh_json(ctx.http, {"O": org, **extra}, self.settings.crtsh_timeout)
+                if rows is None:
+                    ctx.notes.append(f"crtsh-org: query O={org!r} {extra or ''} failed")
+                    continue
+                if len(rows) >= 9990:
+                    ctx.notes.append(f"crtsh-org: O={org!r} hit crt.sh's 10,000-row cap; results truncated")
+                collect_org_hits(rows, ctx.org_names, hits)
+        hits.pop(ctx.seed.domain, None)
+        ctx.ct_org_domains.update(hits)
+        out = make_candidates(hits.keys(), self.name, ctx.seed.domain)
+        for c in out:
+            h = hits[c.domain]
+            c.sources[self.name] = f"{h.count} cert(s) O={h.org}, latest expiry {h.latest_not_after[:10]}"
+        return out
+
+
+class CrtshDomainSource(Source):
+    name = "crtsh-san"
+    description = "crt.sh: other registrable domains in the SANs of the seed's certificates"
+
+    async def candidates(self, ctx: SourceContext) -> list[Candidate]:
+        seed = ctx.seed.domain
+        names: Counter[str] = Counter()
+        for q in (seed, f"%.{seed}"):
+            rows = await crtsh_json(ctx.http, {"q": q, "exclude": "expired"}, self.settings.crtsh_timeout)
+            if rows is None:
+                ctx.notes.append(f"crtsh-san: query {q!r} failed")
+                continue
+            for row in rows:
+                for n in str(row.get("name_value") or "").split("\n"):
+                    rd = registrable(n)
+                    if rd and rd != seed:
+                        names[rd] += 1
+        out = make_candidates(names.keys(), self.name, seed)
+        for c in out:
+            c.sources[self.name] = f"in SANs of {names[c.domain]} current cert(s) naming {seed}"
+        return out
+
+
+async def seed_org_from_ct(http: Http, seed: str, timeout: float = 120.0, max_certs: int = 4) -> list[str]:
+    """The seed's legal name from Subject O= of its recent OV/EV certificates."""
+    rows = await crtsh_json(http, {"q": seed, "exclude": "expired"}, timeout)
+    if not rows:
+        return []
+    picks = []
+    for row in sorted(rows, key=lambda r: str(r.get("not_before") or ""), reverse=True):
+        cn = str(row.get("common_name") or "").lower()
+        if registrable(cn) != seed:
+            continue
+        if DV_ISSUERS.search(str(row.get("issuer_name") or "")):
+            continue
+        picks.append(row.get("id"))
+        if len(picks) >= max_certs:
+            break
+    orgs: Counter[str] = Counter()
+
+    async def one(cid):
+        r = await http.get(CRTSH, params={"d": str(cid)}, ttl=30 * 86400, timeout=60, retries=2)
+        if not r.ok or "BEGIN CERTIFICATE" not in r.text:
+            return None
+        try:
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+
+            cert = x509.load_pem_x509_certificate(r.text.encode())
+            o = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+            return str(o[0].value).strip() if o else None
+        except (ValueError, IndexError):
+            return None
+
+    for o in await asyncio.gather(*(one(c) for c in picks if c)):
+        if o:
+            orgs[o] += 1
+    return [o for o, _ in orgs.most_common()]

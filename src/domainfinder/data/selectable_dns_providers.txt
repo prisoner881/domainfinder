@@ -1,0 +1,18 @@
+# Managed-DNS providers that hand each customer its own subset of a large
+# pool of hosts. One host on its own is shared; the whole set is close to
+# customer-specific. A match counts only on the full set (high Jaccard) and
+# only when the set has at least three hosts from these providers.
+akam.net
+akamaiedge.net
+akamai.net
+nsone.net
+ultradns.com
+ultradns.net
+ultradns.org
+ultradns.biz
+ultradns.info
+ultradns.co.uk
+dynect.net
+dyn.com
+neustar.biz
+verisigndns.com
