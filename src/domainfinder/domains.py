@@ -63,22 +63,52 @@ def is_subdomain_of(host: str, domain: str) -> bool:
     return host == domain or host.endswith("." + domain)
 
 
+_PUNY = re.compile(r"(?<![a-z0-9-])((?:[a-z0-9-]+\.)*xn--[a-z0-9-]+(?:\.[a-z0-9-]+)*)", re.I)
+
+
+def _label_to_unicode(lab: str) -> str:
+    if not lab.lower().startswith("xn--"):
+        return lab
+    try:
+        import idna  # IDNA 2008 / UTS 46, what browsers and registries use
+
+        return idna.decode(lab)
+    except Exception:  # noqa: BLE001 - fall back to the stdlib's IDNA 2003 codec
+        try:
+            return lab.encode("ascii").decode("idna")
+        except UnicodeError:
+            return lab
+
+
 def to_unicode(domain: str) -> str:
     """'adp.xn--vuq861b' → 'adp.信息'; other names come back unchanged."""
-    if "xn--" not in domain:
+    if "xn--" not in domain.lower():
         return domain
-    out = []
-    for lab in domain.split("."):
-        if lab.startswith("xn--"):
-            try:
-                lab = lab.encode("ascii").decode("idna")
-            except UnicodeError:
-                pass
-        out.append(lab)
-    return ".".join(out)
+    return ".".join(_label_to_unicode(lab) for lab in domain.split("."))
 
 
-def display(domain: str) -> str:
-    """Punycode names with their readable form: 'adp.xn--vuq861b (adp.信息)'."""
-    u = to_unicode(domain)
-    return domain if u == domain else f"{domain} ({u})"
+def to_ascii(domain: str) -> str:
+    """'adp.信息' → 'adp.xn--vuq861b' (the form DNS uses)."""
+    try:
+        domain.encode("ascii")
+        return domain
+    except UnicodeEncodeError:
+        pass
+    try:
+        import idna
+
+        return idna.encode(domain, uts46=True).decode("ascii")
+    except Exception:  # noqa: BLE001
+        return domain.encode("idna").decode("ascii")
+
+
+def display(domain: str, idn: str = "unicode") -> str:
+    """The domain in the requested form: 'unicode' (readable) or 'punycode' (ASCII)."""
+    return to_unicode(domain) if idn == "unicode" else to_ascii(domain)
+
+
+def humanize(text: str, idn: str = "unicode") -> str:
+    """Rewrite every Punycode name inside free text (evidence, status, notes)."""
+    if idn != "unicode" or "xn--" not in (text or "").lower():
+        return text
+    return _PUNY.sub(lambda m: to_unicode(m.group(1)), text)

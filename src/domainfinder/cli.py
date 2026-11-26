@@ -41,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-tls", action="store_true", help="skip live TLS certificate checks")
     p.add_argument("--no-cache", action="store_true", help="ignore and do not write the on-disk cache")
     p.add_argument("--cache-ttl", type=int, help="cache lifetime in hours (default 24)")
+    p.add_argument("--idn", choices=["unicode", "punycode"],
+                   help="write internationalized domains readably (unicode, default) or in ASCII/Punycode; "
+                        "CSV and JSON always carry both in domain_unicode / domain_ascii")
     p.add_argument("--list-sources", action="store_true", help="list candidate sources and whether they are on")
     p.add_argument("--debug", action="store_true", help="debug logging to stderr")
     p.add_argument("--version", action="version", version=f"domainfinder {__version__}")
@@ -75,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         settings.use_cache = False
     if args.cache_ttl is not None:
         settings.cache_ttl_hours = args.cache_ttl
+    if args.idn:
+        settings.idn = args.idn
 
     from rich.console import Console
 
@@ -137,14 +142,17 @@ def main(argv: list[str] | None = None) -> int:
                        if r.classification is not Classification.OWNED or r.score >= args.min_score]
 
     if args.json:
-        sys.stdout.write(to_json(rep, include_rejected=args.verbose) + "\n")
+        sys.stdout.write(to_json(rep, include_rejected=args.verbose, idn=settings.idn) + "\n")
     else:
-        print_table(rep, out, include_review=args.include_review, verbose=args.verbose)
+        print_table(rep, out, include_review=args.include_review, verbose=args.verbose, idn=settings.idn)
 
     if args.output:
         suffix = args.output.suffix.lower()
-        text = to_json(rep, include_rejected=True, include_fingerprints=True) if suffix == ".json" \
-            else to_csv(rep, include_rejected=args.verbose)
-        args.output.write_text(text, encoding="utf-8")
+        if suffix == ".json":
+            args.output.write_text(to_json(rep, include_rejected=True, include_fingerprints=True, idn=settings.idn),
+                                   encoding="utf-8")
+        else:
+            # UTF-8 with a byte-order mark, so Excel shows 信息 instead of mojibake.
+            args.output.write_text(to_csv(rep, include_rejected=args.verbose, idn=settings.idn), encoding="utf-8-sig")
         err.print(f"wrote {args.output}")
     return 0

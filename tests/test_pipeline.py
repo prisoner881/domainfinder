@@ -17,6 +17,7 @@ FPS = {
     "adp.fr": fp("adp.fr", rdap=rdap(org="Aeroports de Paris", registrar="CSC", region="", country="FR"),
                  web=web("http://adp.fr/", "https://www.parisaeroport.fr/")),
     "adpvantage.com": fp("adpvantage.com", rdap=rdap(), ns=["ns1.parkingcrew.net"]),
+    "adp.xn--vuq861b": fp("adp.xn--vuq861b", ns=sorted(ADP_NS), www_cname=["www.adp.com"]),
 }
 
 
@@ -46,7 +47,7 @@ async def test_run_end_to_end(monkeypatch, tmp_path):
     owned = [r.domain for r in rep.by_class(Classification.OWNED)]
     review = [r.domain for r in rep.by_class(Classification.REVIEW)]
     rejected = [r.domain for r in rep.by_class(Classification.REJECTED)]
-    assert sorted(owned) == ["myadp.com", "workforcenow.com"]
+    assert sorted(owned) == ["adp.xn--vuq861b", "myadp.com", "workforcenow.com"]
     assert review == ["adpvantage.com"]
     assert sorted(rejected) == ["adp.fr", "adpemployment.com"]
 
@@ -54,5 +55,26 @@ async def test_run_end_to_end(monkeypatch, tmp_path):
     assert [r["domain"] for r in doc["needs_review"]] == ["adpvantage.com"]
     assert all(r["evidence"] for r in doc["owned"])
     csv_text = to_csv(rep)
-    assert csv_text.splitlines()[0] == "domain,classification,score,status,sources,evidence,domain_unicode"
+    assert csv_text.splitlines()[0] == "domain,classification,score,status,sources,evidence,domain_ascii,domain_unicode"
     assert "adp.fr" not in csv_text  # rejected rows only with --verbose
+
+
+async def test_idn_output_forms(monkeypatch, tmp_path):
+    import csv
+    import io
+
+    monkeypatch.setattr(pipeline, "fingerprint", fake_fingerprint)
+    monkeypatch.setattr(pipeline, "seed_org_from_ct", fake_ct_org)
+    monkeypatch.setattr(pipeline, "ALL_SOURCES", [FakeSource])
+    rep = await pipeline.run("adp.com", Settings(cache_dir=tmp_path, use_cache=False))
+
+    rows = {r["domain_ascii"]: r for r in csv.DictReader(io.StringIO(to_csv(rep)))}
+    idn = rows["adp.xn--vuq861b"]
+    assert idn["domain"] == "adp.信息" and idn["domain_unicode"] == "adp.信息"
+    rows_p = {r["domain_ascii"]: r for r in csv.DictReader(io.StringIO(to_csv(rep, idn="punycode")))}
+    assert rows_p["adp.xn--vuq861b"]["domain"] == "adp.xn--vuq861b"
+    assert rows_p["adp.xn--vuq861b"]["domain_unicode"] == "adp.信息"
+
+    doc = json.loads(to_json(rep))
+    entry = next(r for r in doc["owned"] if r["domain_ascii"] == "adp.xn--vuq861b")
+    assert entry["domain"] == "adp.信息" and doc["idn_format"] == "unicode"

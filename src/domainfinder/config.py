@@ -48,6 +48,7 @@ class Settings:
     domaintools_key: str = field(default="", repr=False)
     tls_check: bool = True
     crtsh_timeout: float = 120.0
+    idn: str = "unicode"  # how internationalized names are written out: unicode | punycode
 
     @classmethod
     def from_env(cls, load_dotenv_file: bool = True) -> "Settings":
@@ -74,4 +75,5 @@ class Settings:
             whoisxml_key=_env("WHOISXML_API_KEY"),
             domaintools_user=_env("DOMAINTOOLS_API_USERNAME"),
             domaintools_key=_env("DOMAINTOOLS_API_KEY"),
+            idn="punycode" if _env("DOMAINFINDER_IDN").lower() == "punycode" else "unicode",
         )

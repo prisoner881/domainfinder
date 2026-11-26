@@ -160,18 +160,20 @@ class Result:
         )
         return "; ".join(e.detail for e in ev[:max_items])
 
-    def to_dict(self, include_fingerprint: bool = False) -> dict[str, Any]:
-        from .domains import to_unicode
+    def to_dict(self, include_fingerprint: bool = False, idn: str = "unicode") -> dict[str, Any]:
+        from .domains import display, humanize, to_ascii, to_unicode
 
         d: dict[str, Any] = {
-            "domain": self.domain,
+            "domain": display(self.domain, idn),
+            "domain_ascii": to_ascii(self.domain),
             "domain_unicode": to_unicode(self.domain),
             "score": self.score,
             "classification": self.classification.value,
-            "status": self.status,
-            "sources": self.sources,
-            "evidence": [e.to_dict() for e in self.evidence],
+            "status": humanize(self.status, idn),
+            "sources": {k: humanize(v, idn) for k, v in self.sources.items()},
+            "evidence": [{**e.to_dict(), "detail": humanize(e.detail, idn)} for e in self.evidence],
         }
         if include_fingerprint and self.fingerprint is not None:
+            # Raw technical record: host names stay in the ASCII form DNS uses.
             d["fingerprint"] = self.fingerprint.to_dict()
         return d

@@ -37,6 +37,15 @@ domainfinder adp.com --candidate elabor.com  # verify extra domains you already 
 domainfinder --list-sources                  # which sources are on, and why others are off
 ```
 
+### Internationalized domain names
+
+Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`, Chinese for "information". DNS itself only carries ASCII, so on the wire the name is written as Punycode: `adp.xn--vuq861b`. Both strings are the same domain.
+
+* By default the output shows the readable form in the `domain` field, the table, statuses and evidence text. `--idn punycode` (or `DOMAINFINDER_IDN=punycode`) writes the ASCII form instead, for tools that only accept ASCII host names.
+* CSV and JSON always carry both forms in fixed columns, `domain_unicode` and `domain_ascii`, whatever `--idn` says. A downstream parser can rely on those instead of the `domain` field.
+* CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
+* Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
+
 Other options: `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
