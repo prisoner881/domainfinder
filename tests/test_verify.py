@@ -217,3 +217,21 @@ def test_proxy_names_never_become_seed_org_names():
 
     seed = fp("globalpayments.com", rdap=rdap(registrar="CSC Corporate Domains, Inc.", org="CSC Corporate Domains, Inc."))
     assert derive_org_names(seed, ["Global Payments"], [], "globalpayments") == ["Global Payments"]
+
+
+def test_branded_domain_linked_from_seed_site_goes_to_review():
+    r = scorer().score(fp("adpathletics.com"), cand("adpathletics.com", "seed-links"), set())
+    assert r.classification is C.REVIEW and "seed_link_brand" in kinds(r)
+    r2 = scorer().score(fp("jotform.com"), cand("jotform.com", "seed-links"), set())
+    assert r2.classification is C.REJECTED
+
+
+def test_managed_web_host_netblock_is_not_ownership():
+    from domainfinder.models import Netblock
+
+    s = SeedProfile.build(seed_fp(), [ORG], ["adp"])
+    pantheon = Netblock(handle="P", name="PANTHEON-IP4", start="23.185.0.0", end="23.185.0.255", org="Pantheon")
+    s.fp.netblocks = [pantheon]
+    s = SeedProfile.build(s.fp, [ORG], ["adp"])
+    r = Scorer(s).score(fp("someotheruni.edu", a=["23.185.0.3"], netblocks=[pantheon]), cand("someotheruni.edu"), set())
+    assert "netblock" not in kinds(r)

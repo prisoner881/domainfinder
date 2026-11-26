@@ -59,3 +59,26 @@ cdn77
 bunny
 sedo
 markmonitor
+# managed web hosts common for university, marketing and CMS sites
+pantheon
+acquia
+kinsta
+pagely
+flywheel
+webflow
+fly.io
+render
+hostinger
+newfold
+bluehost
+hostgator
+a2 hosting
+inmotion
+liquid web
+siteground
+dreamhost
+namecheap
+equinix
+sidearm
+cloudways
+platform.sh

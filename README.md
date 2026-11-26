@@ -46,7 +46,7 @@ Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
 * Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
 
-Other options: `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
+Other options: `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
 
@@ -68,7 +68,7 @@ seed ─► [1] fingerprint ─► [2] candidate sources ─► [3] fingerprint 
 
 The same collector runs on the seed and on every candidate. It uses only passive lookups:
 
-* **RDAP**: registrar, registrant org/region/country, creation date. The registry is found through the IANA bootstrap files (rdap.org is the fallback). The tool then follows the registry's `related` link to the registrar's RDAP server, because that server often carries registrant fields the registry leaves out. vCards are parsed defensively.
+* **RDAP**: registrar, registrant org/region/country, creation date. The registry is found through the IANA bootstrap files (rdap.org is the fallback). The tool then follows the registry's `related` link to the registrar's RDAP server, because that server often carries registrant fields the registry leaves out. vCards are parsed defensively. For TLDs with no RDAP service at all, the registry's WHOIS server is asked instead (port 43). Today that is `.edu` (EDUCAUSE), whose records name the institution as registrant.
 * **DNS**: the full NS set, MX hosts, A/AAAA records, TXT and SOA. From these it derives:
   * the mail **tenant ID** (Proofpoint `mxa-0006eb01…` → `proofpoint:0006eb01`; Cisco IronPort and Barracuda too)
   * SPF includes
@@ -119,6 +119,7 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | Holding page + same brand-protection registrar and region (no brand, no past certificates) / + brand but another region | medium | 40 / 35 |
 | Same registrar **and** registrant region (brand-protection registrars only) | weak | 10 |
 | Registrant or certificate org starting with the brand ("ADP, Inc.", "ADP France"): neither a match nor a conflict | weak | 10 |
+| Linked from the seed's homepage *and* carries the brand (athletics, campaign sites) | medium | 35 |
 | Brand label in the name; SEC subsidiary match; linked from the seed site | weak | 5–10 |
 | Parking or for-sale service (NS, redirect or page text) | negative | −50 |
 | RDAP registrant / certificate names a different organization | negative | −40 / −20 |
@@ -174,11 +175,12 @@ Each file has one entry per line, and `#` starts a comment.
 ## Known limitations
 
 * **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](docs/adp-sample-run.md) shows which source would have found each miss.
-* **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. Raw WHOIS (port 43) is not used.
+* **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
 * **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky** (502s on large queries) and caps a result set at 10,000 rows. Queries are retried and cached; failures show up under `-v` notes.
 * **Live TLS `O=` needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's, so that check yields nothing. The CT-log evidence (`crtsh-org`) still works.
 * **Bot protection** on some sites answers the homepage fetch with 403. The redirect chain up to that point is still used.
+* **Sites behind shared hosting and bot protection.** University athletics and campaign sites often run on shared hosts behind a bot-blocking firewall, with privacy-protected registrations. The tool then sees no shared infrastructure; when the seed's homepage links to such a domain and the name carries the brand, it lands in *needs review*.
 * **"Operated by" is not "owned by."** A current certificate with the seed's `O=` can mean a site the seed hosts for a client (ADP runs benefits portals for its customers). Such domains usually land in *needs review*.
 
 ## Development

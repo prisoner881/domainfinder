@@ -95,7 +95,8 @@ async def run(
     cache = Cache(settings.cache_dir / "cache.sqlite", settings.cache_ttl_hours * 3600, enabled=settings.use_cache)
     http = Http(cache=cache, timeout=settings.http_timeout)
     resolver = Resolver(http, cache=cache, mode=settings.dns_mode)
-    collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check)
+    collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check,
+                            whois=settings.whois)
     try:
         return await _run(seed, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
                           skip_sources or [], extra_candidates or [], max_candidates, progress)

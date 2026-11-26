@@ -10,6 +10,7 @@ from .collectors.dnsinfo import collect_dns
 from .collectors.rdap import RdapClient
 from .collectors.tls import fetch_cert
 from .collectors.web import collect_web
+from .collectors.whois import whois_lookup
 from .data import load as load_data
 from .dns import Resolver
 from .domains import label
@@ -27,6 +28,7 @@ class Collectors:
     rdap: RdapClient
     tls_check: bool = True
     max_ips: int = 3
+    whois: bool = True
 
 
 async def fingerprint(domain: str, c: Collectors, *, web: bool = True, rdap: bool = True) -> Fingerprint:
@@ -40,6 +42,10 @@ async def fingerprint(domain: str, c: Collectors, *, web: bool = True, rdap: boo
     async def do_rdap():
         if rdap:
             fp.rdap = await c.rdap.domain(domain)
+            if not fp.rdap.available and c.whois:
+                w = await whois_lookup(domain, c.http.cache)
+                if w is not None and w.available:
+                    fp.rdap = w
             if fp.rdap.error:
                 fp.errors.append(fp.rdap.error)
 

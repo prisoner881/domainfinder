@@ -1,0 +1,32 @@
+This Registry database contains ONLY .EDU domains.
+The data in the EDUCAUSE Whois database is provided
+by EDUCAUSE for information purposes in order to
+assist in the process of obtaining information about
+or related to .edu domain registration records.
+
+-------------------------------------------------------------
+
+Domain Name: EXAMPLEU.EDU
+
+Registrant:
+	Example University
+	100 University Drive
+	Moon Township, PA 15108
+	USA
+
+Administrative Contact:
+	IT Director
+	Example University
+	100 University Drive
+	Moon Township, PA 15108
+	USA
+	+1.4125550100
+	itdirector@exampleu.edu
+
+Name Servers:
+	NS1.EXAMPLEU.EDU
+	NS2.EXAMPLEU.EDU
+
+Domain record activated:    01-Jan-1990
+Domain record last updated: 01-Jun-2026
+Domain expires:             31-Jul-2027

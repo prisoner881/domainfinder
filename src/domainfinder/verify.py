@@ -45,6 +45,7 @@ WEIGHTS = {
     "brand_org": 10,
     "subsidiary": 10,
     "seed_link": 5,
+    "seed_link_brand": 35,
     "parked": -50,
     "different_org_rdap": -40,
     "different_org_cert": -20,
@@ -317,7 +318,12 @@ class Scorer:
         if d in self.subs:
             add("subsidiary", W, f"matches SEC subsidiary {self.subs[d]}")
         if "seed-links" in cand.sources:
-            add("seed_link", W, cand.sources["seed-links"])
+            if brand:
+                # The seed's own site points at a domain carrying its brand:
+                # worth a human look (athletics, campaigns), never enough alone.
+                add("seed_link_brand", M, cand.sources["seed-links"] + " and carries the brand")
+            else:
+                add("seed_link", W, cand.sources["seed-links"])
         for h in cand.hints:
             ev.append(h)
         return ev, flags
