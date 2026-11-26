@@ -210,6 +210,7 @@ class Http:
         timeout: float | None = None,
         retries: int | None = None,
         cache_errors: bool = False,
+        cache_404: bool = True,
     ) -> Response:
         """GET a URL (no redirect following), cached by URL+params."""
         key = "GET " + str(httpx.URL(url, params=params))
@@ -217,7 +218,8 @@ class Http:
         if cached is not None:
             return Response.from_cache(cached)
         resp = await self._request(url, params=params, headers=headers, timeout=timeout, retries=retries)
-        if resp.status and (resp.ok or resp.status in (301, 302, 303, 307, 308, 404) or cache_errors):
+        cacheable = (301, 302, 303, 307, 308, 404) if cache_404 else (301, 302, 303, 307, 308)
+        if resp.status and (resp.ok or resp.status in cacheable or cache_errors):
             self.cache.set(key, resp.to_cache())
         return resp
 

@@ -18,8 +18,14 @@ def parse_der(der: bytes) -> CertInfo:
     from cryptography import x509
     from cryptography.x509.oid import ExtensionOID, NameOID
 
+    import warnings
+
     info = CertInfo(fetched=True)
-    cert = x509.load_der_x509_certificate(der)
+    with warnings.catch_warnings():
+        # Some servers present certificates with a non-positive serial number;
+        # we only read their names, so cryptography's deprecation warning is noise.
+        warnings.simplefilter("ignore")
+        cert = x509.load_der_x509_certificate(der)
     try:
         orgs = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
         info.subject_org = str(orgs[0].value).strip() if orgs else ""

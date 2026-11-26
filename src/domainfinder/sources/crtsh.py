@@ -25,18 +25,35 @@ DV_ISSUERS = re.compile(r"let's encrypt|letsencrypt|zerossl|\bR3\b|\bE[1-9]\b|\b
                         r"cpanel|amazon|google trust|gts ca|cloudflare", re.I)
 
 
+def _variants(params: dict[str, str]) -> list[tuple[str, dict[str, str]]]:
+    """URL forms to try, in order. crt.sh intermittently answers one form of a
+    large query with 404/502/504 while another form of the same query works."""
+    out = [(CRTSH, {**params, "output": "json"}), (CRTSH + "json", dict(params))]
+    if "exclude" in params:  # last resort: include expired certs (filtered later)
+        bare = {k: v for k, v in params.items() if k != "exclude"}
+        out += [(CRTSH + "json", bare), (CRTSH, {**bare, "output": "json"})]
+    return out
+
+
 async def crtsh_json(http: Http, params: dict[str, str], timeout: float) -> list[dict] | None:
-    params = {**params, "output": "json"}
-    r = await http.get(CRTSH, params=params, ttl=CT_TTL, timeout=timeout, retries=3)
-    if not r.ok:
-        log.warning("crt.sh %s failed: %s", params, r.status or r.error)
-        return None
-    try:
-        data = json.loads(r.text) if r.text.strip() else []
-    except ValueError:
-        log.warning("crt.sh %s returned non-JSON", params)
-        return None
-    return data if isinstance(data, list) else None
+    last = ""
+    for url, p in _variants(params):
+        # Failures are never cached: crt.sh's 404s are transient, not "no data".
+        r = await http.get(url, params=p, ttl=CT_TTL, timeout=timeout, retries=2, cache_404=False)
+        ctype = r.headers.get("content-type", "")
+        if not r.ok or ("json" not in ctype and not r.text.lstrip().startswith(("[", "{"))):
+            last = f"HTTP {r.status or r.error}"
+            log.debug("crt.sh %s %s failed: %s", url, p, last)
+            continue
+        try:
+            data = json.loads(r.text) if r.text.strip() else []
+        except ValueError:
+            last = "non-JSON answer"
+            continue
+        if isinstance(data, list):
+            return data
+    log.info("crt.sh %s failed in every URL form (%s)", params, last)
+    return None
 
 
 def _now() -> datetime:
@@ -138,7 +155,7 @@ async def seed_org_from_ct(http: Http, seed: str, timeout: float = 120.0, max_ce
     orgs: Counter[str] = Counter()
 
     async def one(cid):
-        r = await http.get(CRTSH, params={"d": str(cid)}, ttl=30 * 86400, timeout=60, retries=2)
+        r = await http.get(CRTSH, params={"d": str(cid)}, ttl=30 * 86400, timeout=60, retries=2, cache_404=False)
         if not r.ok or "BEGIN CERTIFICATE" not in r.text:
             return None
         try:

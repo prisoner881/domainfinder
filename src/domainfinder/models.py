@@ -161,8 +161,11 @@ class Result:
         return "; ".join(e.detail for e in ev[:max_items])
 
     def to_dict(self, include_fingerprint: bool = False) -> dict[str, Any]:
+        from .domains import to_unicode
+
         d: dict[str, Any] = {
             "domain": self.domain,
+            "domain_unicode": to_unicode(self.domain),
             "score": self.score,
             "classification": self.classification.value,
             "status": self.status,

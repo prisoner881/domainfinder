@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timezone
 
 from . import __version__
+from .domains import display, to_unicode
 from .models import Classification, Result
 from .pipeline import RunReport
 
@@ -48,7 +49,7 @@ def to_json(rep: RunReport, include_rejected: bool = True, include_fingerprints:
     return json.dumps(doc, indent=2, ensure_ascii=False)
 
 
-CSV_FIELDS = ["domain", "classification", "score", "status", "sources", "evidence"]
+CSV_FIELDS = ["domain", "classification", "score", "status", "sources", "evidence", "domain_unicode"]
 
 
 def to_csv(rep: RunReport, include_rejected: bool = False) -> str:
@@ -61,13 +62,14 @@ def to_csv(rep: RunReport, include_rejected: bool = False) -> str:
             w.writerow([
                 r.domain, r.classification.value, r.score, r.status,
                 "; ".join(r.sources), " | ".join(f"{e.detail} ({e.points:+d})" for e in r.evidence if e.points),
+                to_unicode(r.domain),
             ])
     return buf.getvalue()
 
 
 def _rows(results: list[Result], verbose: bool):
     for r in results:
-        yield r.domain, str(r.score), r.status, r.summary(6 if verbose else 3), ", ".join(r.sources)
+        yield display(r.domain), str(r.score), r.status, r.summary(6 if verbose else 3), ", ".join(r.sources)
 
 
 def print_table(rep: RunReport, console, *, include_review: bool = True, verbose: bool = False, min_score: int = 0) -> None:

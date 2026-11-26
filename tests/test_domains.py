@@ -18,3 +18,12 @@ def test_registrable_rejects_junk():
 def test_label_and_clean():
     assert label("adp.co.uk") == "adp"
     assert clean("mailto:someone@adp.com") == "adp.com"
+
+
+def test_punycode_names_get_a_readable_form():
+    from domainfinder.domains import display, to_unicode
+
+    assert to_unicode("adp.xn--vuq861b") == "adp.信息"
+    assert display("adp.xn--vuq861b") == "adp.xn--vuq861b (adp.信息)"
+    assert display("adp.com") == "adp.com"
+    assert to_unicode("xn--broken-.com") == "xn--broken-.com"  # undecodable: unchanged

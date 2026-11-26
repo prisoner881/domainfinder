@@ -61,3 +61,24 @@ def suffix(domain: str) -> str:
 def is_subdomain_of(host: str, domain: str) -> bool:
     host, domain = clean(host), clean(domain)
     return host == domain or host.endswith("." + domain)
+
+
+def to_unicode(domain: str) -> str:
+    """'adp.xn--vuq861b' → 'adp.信息'; other names come back unchanged."""
+    if "xn--" not in domain:
+        return domain
+    out = []
+    for lab in domain.split("."):
+        if lab.startswith("xn--"):
+            try:
+                lab = lab.encode("ascii").decode("idna")
+            except UnicodeError:
+                pass
+        out.append(lab)
+    return ".".join(out)
+
+
+def display(domain: str) -> str:
+    """Punycode names with their readable form: 'adp.xn--vuq861b (adp.信息)'."""
+    u = to_unicode(domain)
+    return domain if u == domain else f"{domain} ({u})"

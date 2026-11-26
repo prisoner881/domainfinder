@@ -54,5 +54,5 @@ async def test_run_end_to_end(monkeypatch, tmp_path):
     assert [r["domain"] for r in doc["needs_review"]] == ["adpvantage.com"]
     assert all(r["evidence"] for r in doc["owned"])
     csv_text = to_csv(rep)
-    assert csv_text.splitlines()[0] == "domain,classification,score,status,sources,evidence"
+    assert csv_text.splitlines()[0] == "domain,classification,score,status,sources,evidence,domain_unicode"
     assert "adp.fr" not in csv_text  # rejected rows only with --verbose

@@ -136,3 +136,30 @@ def test_paid_sources_are_off_without_keys_and_on_with_them():
 def test_settings_repr_never_shows_keys():
     s = Settings(securitytrails_key="SECRET123", whoisxml_key="SECRET456")
     assert "SECRET" not in repr(s)
+
+
+@respx.mock
+async def test_crtsh_falls_back_to_other_url_forms_and_never_caches_404(tmp_path):
+    from domainfinder.cache import Cache
+    from domainfinder.http import Http
+    from domainfinder.sources.crtsh import crtsh_json
+
+    legacy = respx.get("https://crt.sh/").respond(404, text="<html>Not Found</html>")
+    new = respx.get("https://crt.sh/json").respond(json=[{"id": 7}])
+    http = Http(cache=Cache(tmp_path / "c.sqlite", 3600))
+    assert await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30) == [{"id": 7}]
+    # The 404 was not cached: a second call asks the legacy form again.
+    await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30)
+    assert legacy.call_count == 2 and new.call_count == 1  # the success *was* cached
+    await http.aclose()
+
+
+@respx.mock
+async def test_crtsh_gives_up_cleanly_when_every_form_fails():
+    from domainfinder.http import Http
+    from domainfinder.sources.crtsh import crtsh_json
+
+    respx.get(url__regex=r"https://crt\.sh/.*").respond(404, text="<html>Not Found</html>")
+    http = Http()
+    assert await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30) is None
+    await http.aclose()
