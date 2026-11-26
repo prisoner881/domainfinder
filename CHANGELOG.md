@@ -3,6 +3,20 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.2 — 2026-11-26
+
+### Added
+- `gtld` source: the brand label is now also checked across common generic
+  TLDs (`.net`, `.org`, `.info`, `.biz`, `.name`, `.pro`, `.mobi`, `.io`,
+  `.ai`, `.me`, `.tv`, `.cc`, `.app`, `.dev`, `.cloud`, `.tech`, `.online`,
+  and more; `data/gtlds.txt`), with the same NS/SOA existence check and full
+  verification as the ccTLD sweep. `.com`, `.net` and `.org` moved here from
+  the ccTLD list.
+- `--all-tlds` (or `DOMAINFINDER_ALL_TLDS=1`) sweeps every TLD in IANA's list
+  instead, fetched live and cached for a week, so the exhaustive check needs
+  no list maintenance. Falls back to the common set if the list is
+  unavailable.
+
 ## 0.9.1 — 2026-11-26
 
 ### Added

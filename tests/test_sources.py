@@ -163,3 +163,48 @@ async def test_crtsh_gives_up_cleanly_when_every_form_fails():
     http = Http()
     assert await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30) is None
     await http.aclose()
+
+
+async def test_gtld_source_checks_common_generic_tlds():
+    from domainfinder.sources.cctld import GTldSource
+
+    res = FakeResolver({"adp.net", "adp.org", "adp.io", "adp.ca"})
+    ctx = ctx_for(resolver=res)
+    out = await GTldSource(Settings()).candidates(ctx)
+    assert [c.domain for c in out] == ["adp.io", "adp.net", "adp.org"]
+    asked = {n for n, _ in res.asked}
+    assert {"adp.info", "adp.biz", "adp.dev"} <= asked
+    assert "adp.com" not in asked  # the seed itself
+    assert "adp.ca" not in asked  # ccTLDs are the cctld source's job
+    assert out[0].sources == {"gtld": "brand label .io"}
+
+
+@respx.mock
+async def test_all_tlds_uses_ianas_list():
+    from domainfinder.http import Http
+    from domainfinder.sources.cctld import GTldSource
+
+    respx.get("https://data.iana.org/TLD/tlds-alpha-by-domain.txt").respond(
+        text="# Version 2026112600\nCOM\nDE\nPHOTOGRAPHY\nXN--VUQ861B\n")
+    http = Http()
+    res = FakeResolver({"adp.photography", "adp.xn--vuq861b"})
+    ctx = ctx_for(http=http, resolver=res)
+    out = await GTldSource(Settings(all_tlds=True)).candidates(ctx)
+    assert [c.domain for c in out] == ["adp.photography", "adp.xn--vuq861b"]
+    assert {n for n, _ in res.asked} == {"adp.photography", "adp.xn--vuq861b"}  # .de: cctld's; .com: seed
+    await http.aclose()
+
+
+@respx.mock
+async def test_all_tlds_falls_back_to_common_list():
+    from domainfinder.http import Http
+    from domainfinder.sources.cctld import GTldSource
+
+    respx.get("https://data.iana.org/TLD/tlds-alpha-by-domain.txt").respond(503)
+    http = Http(retries=0)
+    res = FakeResolver({"adp.net"})
+    ctx = ctx_for(http=http, resolver=res)
+    out = await GTldSource(Settings(all_tlds=True)).candidates(ctx)
+    assert [c.domain for c in out] == ["adp.net"]
+    assert any("IANA TLD list unavailable" in n for n in ctx.notes)
+    await http.aclose()

@@ -47,6 +47,7 @@ class Settings:
     domaintools_user: str = field(default="", repr=False)
     domaintools_key: str = field(default="", repr=False)
     tls_check: bool = True
+    all_tlds: bool = False  # gtld sweep over every TLD (IANA list) instead of the common ones
     whois: bool = True  # port-43 WHOIS fallback for TLDs without RDAP (.edu)
     crtsh_timeout: float = 120.0
     idn: str = "unicode"  # how internationalized names are written out: unicode | punycode
@@ -77,5 +78,6 @@ class Settings:
             domaintools_user=_env("DOMAINTOOLS_API_USERNAME"),
             domaintools_key=_env("DOMAINTOOLS_API_KEY"),
             whois=_bool("DOMAINFINDER_WHOIS", True),
+            all_tlds=_bool("DOMAINFINDER_ALL_TLDS", False),
             idn="punycode" if _env("DOMAINFINDER_IDN").lower() == "punycode" else "unicode",
         )

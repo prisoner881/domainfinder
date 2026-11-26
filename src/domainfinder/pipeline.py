@@ -23,7 +23,7 @@ from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
 log = logging.getLogger(__name__)
 
 # When there are more candidates than --max-candidates, verify these first.
-SOURCE_PRIORITY = ["manual", "import", "crtsh-org", "seed-links", "cctld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
+SOURCE_PRIORITY = ["manual", "import", "crtsh-org", "seed-links", "cctld", "gtld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
 
 
 @dataclass

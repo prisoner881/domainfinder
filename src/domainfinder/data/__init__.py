@@ -33,6 +33,7 @@ def _host_matches(host: str, patterns: list[str]) -> bool:
 @dataclass(frozen=True)
 class ReferenceData:
     cctlds: tuple[str, ...]
+    gtlds: tuple[str, ...]
     shared_dns: tuple[str, ...]
     selectable_dns: tuple[str, ...]
     shared_mail: tuple[str, ...]
@@ -106,6 +107,7 @@ def load() -> ReferenceData:
     orgs = _read_lines("shared_hosting_orgs.txt")
     return ReferenceData(
         cctlds=tuple(_read_lines("cctlds.txt")),
+        gtlds=tuple(_read_lines("gtlds.txt")),
         shared_dns=tuple(_read_lines("shared_dns_providers.txt")),
         selectable_dns=tuple(_read_lines("selectable_dns_providers.txt")),
         shared_mail=tuple(_read_lines("shared_mail_providers.txt")),

@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.1** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.1` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.2** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.2` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Only free sources are used today. Paid providers (SecurityTrails, WhoisXML API, DomainTools) are built in as switched-off stubs. Each one turns on once its API key is configured.
 
@@ -76,7 +76,7 @@ Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
 * Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
 
-Other options: `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
+Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
 
@@ -117,7 +117,8 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 |---|---|---|
 | `crtsh-org` | ✓ | crt.sh certificates whose Subject `O=` is the seed's organization: current and expired, with recency recorded. The strongest free source. |
 | `crtsh-san` | ✓ | Other registrable domains in the SANs of the seed's current certificates. |
-| `cctld` | ✓ | The brand label on ~80 suffixes (`data/cctlds.txt`). An NS/SOA lookup first; only registered names go on to verification. |
+| `cctld` | ✓ | The brand label on ~80 country-code suffixes (`data/cctlds.txt`). An NS/SOA lookup first; only registered names go on to verification. |
+| `gtld` | ✓ | The brand label on ~35 common generic TLDs (`data/gtlds.txt`: `.net`, `.org`, `.info`, `.biz`, `.io`, `.ai`, `.app`, `.dev`, …), checked the same way. `--all-tlds` uses IANA's list of every TLD instead (about 1,400, fetched live and cached for a week). |
 | `seed-links` | ✓ | Domains linked from the seed's homepage, its CSP header and its live certificate. |
 | `edgar` | ✓ | SEC EDGAR Exhibit 21 subsidiaries → `<name>.com` guesses. Needs `DOMAINFINDER_SEC_USER_AGENT` (SEC policy). |
 | `hackertarget` | ✓ | Reverse NS (`findshareddns`). For managed-DNS pools it intersects several of the seed's NS hosts, which approximates "same NS set". Small daily quota; turn it off with `--no-hackertarget`. |
@@ -183,7 +184,7 @@ To add any other source, subclass `sources.base.Source` and list it in `sources/
 
 `src/domainfinder/data/`:
 
-* `cctlds.txt`
+* `cctlds.txt` and `gtlds.txt`
 * `shared_dns_providers.txt` and `selectable_dns_providers.txt`
 * `shared_mail_providers.txt`
 * `shared_spf_includes.txt`

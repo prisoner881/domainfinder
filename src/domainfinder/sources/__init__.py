@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .base import Source, SourceContext
-from .cctld import CcTldSource
+from .cctld import CcTldSource, GTldSource
 from .crtsh import CrtshDomainSource, CrtshOrgSource
 from .edgar import EdgarSource
 from .links import SeedLinkSource
@@ -14,6 +14,7 @@ ALL_SOURCES: list[type[Source]] = [
     CrtshOrgSource,
     CrtshDomainSource,
     CcTldSource,
+    GTldSource,
     SeedLinkSource,
     EdgarSource,
     HackerTargetSource,

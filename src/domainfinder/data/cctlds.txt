@@ -1,4 +1,5 @@
-# Suffixes tried for the brand label (L.<suffix>). One per line.
+# Country-code suffixes tried for the brand label (L.<suffix>). One per line.
+# Generic TLDs are in gtlds.txt.
 # Keep this conservative: every hit costs a full verification.
 ca
 us
@@ -79,7 +80,3 @@ co
 com.co
 pe
 com.pe
-# generic TLDs worth one look each
-com
-net
-org
