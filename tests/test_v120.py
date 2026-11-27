@@ -198,7 +198,7 @@ async def test_failed_query_falls_back_for_that_query_then_three_in_a_row_turn_t
     assert db.disabled_reason.startswith("3 failures in a row")
     assert db.queries == 1 and db.fallbacks == 4  # the sixth never reached the database
     assert len(db.conns) == 1  # a healthy connection is kept after a failed query
-    assert db.conns[0].settings[0] == "SET LOCAL statement_timeout = 30000"  # crt.sh stops slow queries itself
+    assert db.conns[0].settings == [] and db.conns[0].transactions == 0  # statement pooling: no SET, no BEGIN
     assert db.failures[0] == "q='a.com': no answer within 30 s"
     assert "database failures: q='a.com': no answer within 30 s" in db.summary()
     await http.aclose()
@@ -372,7 +372,7 @@ async def test_connection_closed_by_the_pooler_is_replaced_and_the_query_retried
     assert b[0]["name_value"] == "adp.fr"
     assert len(conns) == 2 and conns[0].closed
     assert db.failures == [] and db.fallbacks == 0  # a lost connection is not the database failing
-    assert all(c.transactions for c in conns)  # time limit and query share one transaction
+    assert not any(c.transactions or c.settings for c in conns)  # crt.sh's pooler allows neither
     await http.aclose()
 
 
@@ -386,10 +386,38 @@ async def test_idle_connection_is_replaced_before_the_next_query(monkeypatch):
     assert len(db.conns) == 2 and db.conns[0].closed and db.queries == 2
 
 
-async def test_database_searches_get_their_own_time_limit():
+async def test_database_searches_get_their_own_time_limit_and_cancel_on_expiry(monkeypatch):
+    import asyncio
+
     db = db_with(rows("a.com"), search_timeout=300)
+    limits = []
+    real_wait_for = asyncio.wait_for
+
+    async def spy(aw, timeout):
+        limits.append(timeout)
+        return await real_wait_for(aw, timeout)
+
+    monkeypatch.setattr(crtsh_db.asyncio, "wait_for", spy)
     await db.search({"O": "Automatic Data Processing, Inc."}, 120)
-    assert db.conns[0].settings == ["SET LOCAL statement_timeout = 300000"]
+    assert limits[:2] == [300, 300]  # the database limit, not the web API's 120 s
+    assert db.conns[0].settings == []  # never a SET on crt.sh's shared server connections
+
+    # On expiry the query is cancelled and the healthy connection kept.
+    monkeypatch.setattr(crtsh_db.asyncio, "wait_for", real_wait_for)
+    cancelled = []
+
+    async def never_answers(self, sql, args=None):
+        await asyncio.sleep(10)
+
+    async def cancel_safe(self):
+        cancelled.append(True)
+
+    monkeypatch.setattr(FakeCursor, "execute", never_answers)
+    monkeypatch.setattr(FakeConn, "cancel_safe", cancel_safe, raising=False)
+    slow = db_with(rows("b.com"))
+    out = await slow._execute("SELECT 1", {}, 0.05, what="slow search")
+    assert out is None and slow.failures == ["slow search: no answer within 0 s"]
+    assert cancelled == [True] and slow._conn is not None and not slow._conn.closed
 
 
 def test_database_timeout_setting(monkeypatch):

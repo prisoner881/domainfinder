@@ -233,21 +233,22 @@ class CrtshDb:
                 if self.disabled_reason or not await self._ensure_connection(what):
                     return None
                 try:
-                    # One transaction, so the time limit and the query reach the
-                    # same server connection even through crt.sh's pooler; the
-                    # server stops a slow query itself and the connection stays usable.
-                    async with self._conn.transaction():
-                        async with self._conn.cursor() as cur:
-                            await cur.execute(f"SET LOCAL statement_timeout = {int(timeout * 1000)}")
-                            await asyncio.wait_for(cur.execute(sql, args), timeout + 15)
-                            records = await asyncio.wait_for(cur.fetchall(), timeout + 15)
-                            columns = [c.name for c in (cur.description or [])]
+                    # crt.sh's pooler runs in statement-pooling mode: no
+                    # transactions, and each statement may reach a different
+                    # server connection, so a SET would change someone else's
+                    # session. The time limit is ours alone; on expiry the
+                    # query is cancelled (the pooler forwards cancel requests).
+                    async with self._conn.cursor() as cur:
+                        await asyncio.wait_for(cur.execute(sql, args), timeout)
+                        records = await asyncio.wait_for(cur.fetchall(), timeout)
+                        columns = [c.name for c in (cur.description or [])]
                     self._failures = 0
                     self._last_used = time.monotonic()
                     return columns, records
                 except Exception as e:  # statement timeout, dropped connection, schema change...
                     why = _first_line(e)
-                    timed_out = isinstance(e, asyncio.TimeoutError) or "statement timeout" in why
+                    timed_out = isinstance(e, asyncio.TimeoutError) or "statement timeout" in why \
+                        or "query_timeout" in why
                     if not timed_out and attempt == 1 and self._connection_lost(e):
                         log.info("crt.sh database: connection lost before %s (%s); reconnecting", what, why)
                         await self._drop()

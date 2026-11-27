@@ -5,6 +5,19 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.2.4 — 2026-11-27
+
+### Fixed
+- **crt.sh database searches work again.** crt.sh's connection pooler runs
+  in statement-pooling mode: it refuses transactions ("transaction blocks
+  not allowed in statement pooling mode", every search failed in 1.2.3),
+  and each statement can reach a different server connection. The tool now
+  sends only the search itself: no transaction and no `SET`. (The `SET
+  statement_timeout` of 1.2.1 could have landed on a server connection
+  serving someone else.) The time limit (`DOMAINFINDER_CRTSH_DB_TIMEOUT`,
+  300 s) is enforced by the tool, which cancels a query that runs too long
+  and keeps the connection.
+
 ## 1.2.3 — 2026-11-27
 
 ### Fixed
