@@ -3,6 +3,14 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.9 — 2026-11-27
+
+### Added
+- `start-venv.sh`: `source start-venv.sh` activates the project's virtual
+  environment, creating `.venv` and installing domainfinder (with test
+  extras) on first use. Run directly instead of sourced, it says to source
+  it, since activation in a child shell would not last.
+
 ## 0.9.8 — 2026-11-27
 
 ### Changed
