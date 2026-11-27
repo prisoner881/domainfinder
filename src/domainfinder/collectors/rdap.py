@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..domains import clean
-from ..http import Http
+from ..http import Http, json_answer
 from ..contacts import contact, norm_email, norm_phone, norm_street
 from ..models import Netblock, RdapInfo
 
@@ -178,7 +178,7 @@ class Bootstrap:
         self._lock = asyncio.Lock()
 
     async def _load(self, url: str) -> list:
-        r = await self.http.get(url, ttl=BOOTSTRAP_TTL)
+        r = await self.http.get(url, ttl=BOOTSTRAP_TTL, valid=json_answer)
         if not r.ok:
             return []
         try:
@@ -238,7 +238,7 @@ class RdapClient:
         info = RdapInfo()
         base = await self.bootstrap.domain_base(domain)
         url = _join(base, f"domain/{domain}") if base else f"{RDAP_ORG}/domain/{domain}"
-        r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL, retries=2)
+        r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
         if r.status == 404:
             info.error = "not found in RDAP"
             return info
@@ -255,7 +255,7 @@ class RdapClient:
             return info
         # The registrar's RDAP often carries registrant fields the registry lacks.
         for href in related_links(data, r.url)[:1]:
-            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2)
+            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
             if not rr.ok:
                 self.registrar_failures[urlsplit(href).hostname or href] += 1
             if rr.ok:
@@ -285,7 +285,7 @@ class RdapClient:
                 return hit
             base = await self.bootstrap.ip_base(ip)
             url = _join(base, f"ip/{ip}") if base else f"{RDAP_ORG}/ip/{ip}"
-            r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL * 2, retries=2)
+            r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL * 2, retries=2, valid=json_answer)
             if not r.ok:
                 return None
             try:

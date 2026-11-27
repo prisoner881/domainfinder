@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .cache import Cache
+from .cache import CACHE_FILE, Cache
 from .collectors.rdap import RdapClient
 from .config import Settings
 from .dns import Resolver
@@ -99,7 +99,8 @@ async def run(
 ) -> RunReport:
     supplied = seed
     seed = registrable(seed) or seed
-    cache = Cache(settings.cache_dir / "cache.sqlite", settings.cache_ttl_hours * 3600, enabled=settings.use_cache)
+    cache = Cache(settings.cache_dir / CACHE_FILE, settings.cache_ttl_hours * 3600, enabled=settings.use_cache,
+                  max_stale=max(0, settings.cache_max_stale_days) * 86400)
     http = Http(cache=cache, timeout=settings.http_timeout)
     resolver = Resolver(http, cache=cache, mode=settings.dns_mode)
     collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check,
@@ -313,6 +314,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         ctx.notes.append("rdap: the registrar's RDAP did not answer for " + ", ".join(
             f"{n} domain(s) at {host}" for host, n in failed.most_common(5))
             + "; registry data only for those (registrant contacts may be missing)")
+    ctx.notes.append(cache_note(collectors.http))
     from .sources.crtsh_db import CURRENT
 
     db = CURRENT.get()
@@ -351,6 +353,25 @@ async def refresh_ns(fp: Fingerprint, resolver, stats: dict[str, int] | None = N
         fp.ns = sorted(set(ans.records))
         if stats is not None:
             stats["changed"] = stats.get("changed", 0) + 1
+
+
+def cache_note(http) -> str:
+    """Where the cache is, how big, how much it answered, and any expired
+    answers used because a fresh lookup failed."""
+    c = http.cache
+    if not c.enabled:
+        return "cache: off (--no-cache)"
+    s = c.stats
+    note = (f"cache: {c.path} ({c.size_bytes() / 1e6:.1f} MB); {s['hit']} answer(s) from cache, "
+            f"{s['stored']} stored")
+    if s["pruned"]:
+        note += f", {s['pruned']} expired entr{'y' if s['pruned'] == 1 else 'ies'} removed"
+    if s["write_skipped"]:
+        note += f", {s['write_skipped']} write(s) skipped (file busy)"
+    if http.stale_hosts:
+        note += "; fresh lookups failed, older cached answers used: " + ", ".join(
+            f"{host} {n}" for host, n in http.stale_hosts.most_common(6))
+    return note
 
 
 def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp: bool = True,

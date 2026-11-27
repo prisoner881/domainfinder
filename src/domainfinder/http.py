@@ -7,6 +7,8 @@ import email.utils
 import logging
 import random
 import time
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -44,6 +46,7 @@ class Response:
     headers: dict[str, str] = field(default_factory=dict)
     error: str = ""
     cached: bool = False  # served from the on-disk cache, no request sent
+    stale_age: float = 0.0  # > 0: an expired cached answer, used because the fresh lookup failed
 
     @property
     def ok(self) -> bool:
@@ -60,6 +63,18 @@ class Response:
     @classmethod
     def from_cache(cls, d: dict[str, Any]) -> "Response":
         return cls(status=d["status"], url=d["url"], text=d.get("text", ""), headers=d.get("headers", {}), cached=True)
+
+
+def json_answer(r: "Response", key: str | None = None) -> bool:
+    """A cacheable JSON answer: parses, and (if `key`) is an object with that
+    key. For APIs that report errors with HTTP 200."""
+    try:
+        data = r.json()
+    except ValueError:
+        return False
+    if key is None:
+        return isinstance(data, (dict, list)) and not (isinstance(data, dict) and data.get("errorCode"))
+    return isinstance(data, dict) and key in data
 
 
 @dataclass
@@ -138,6 +153,7 @@ class Http:
             **common,
         )
         self._gates: dict[str, _HostGate] = {}
+        self.stale_hosts: Counter[str] = Counter()  # host -> expired answers used after a failed lookup
         self.stats: dict[str, int] = {}
 
     async def aclose(self) -> None:
@@ -215,17 +231,45 @@ class Http:
         retries: int | None = None,
         cache_errors: bool = False,
         cache_404: bool = True,
+        valid: Callable[[Response], bool] | None = None,
+        store: bool = True,
+        stale_ok: bool = True,
     ) -> Response:
-        """GET a URL (no redirect following), cached by URL+params."""
+        """GET a URL (no redirect following), cached by URL+params.
+
+        `valid` checks a 2xx answer before it is cached: APIs that report
+        errors (quota exceeded, no credits) with HTTP 200 must not have them
+        replayed from the cache. `store=False` neither reads nor writes the
+        cache. When the fresh lookup fails and `stale_ok`, an expired cached
+        answer is returned instead (Response.stale_age > 0)."""
         key = "GET " + str(httpx.URL(url, params=params))
-        cached = self.cache.get(key, ttl)
-        if cached is not None:
-            return Response.from_cache(cached)
+        if store:
+            cached = self.cache.get(key, ttl)
+            if cached is not None:
+                return Response.from_cache(cached)
         resp = await self._request(url, params=params, headers=headers, timeout=timeout, retries=retries)
         cacheable = (301, 302, 303, 307, 308, 404) if cache_404 else (301, 302, 303, 307, 308)
-        if resp.status and (resp.ok or resp.status in cacheable or cache_errors):
+        good = bool(resp.status) and (resp.ok or resp.status in cacheable or cache_errors)
+        if good and resp.ok and valid is not None and not valid(resp):
+            good = False
+        if not store:
+            return resp
+        if good:
             self.cache.set(key, resp.to_cache())
-        return resp
+            return resp
+        return self._stale(key, url, resp) if stale_ok else resp
+
+    def _stale(self, key: str, url: str, fresh: Response) -> Response:
+        """An expired cached answer for `key`, or `fresh` (the failed answer) if none."""
+        hit = self.cache.get_stale(key)
+        if hit is None:
+            return fresh
+        value, age = hit
+        r = Response.from_cache(value)
+        r.stale_age = max(age, 1.0)
+        self.stale_hosts[urlsplit(url).hostname or url] += 1
+        log.info("using a cached answer %.1f days old for %s (fresh lookup failed)", age / 86400, url)
+        return r
 
     async def post_json(
         self,
@@ -236,6 +280,7 @@ class Http:
         ttl: int | None = None,
         timeout: float | None = None,
         retries: int | None = None,
+        valid: Callable[[Response], bool] | None = None,
     ) -> Response:
         """POST a JSON body; successful answers are cached by URL + `cache_payload`
         (pass the payload *without* secrets, so keys never reach the cache)."""
@@ -248,9 +293,12 @@ class Http:
             if cached is not None:
                 return Response.from_cache(cached)
         resp = await self._request(url, json_body=payload, timeout=timeout, retries=retries)
-        if key and resp.ok:
+        if not key:
+            return resp
+        if resp.ok and (valid is None or valid(resp)):
             self.cache.set(key, resp.to_cache())
-        return resp
+            return resp
+        return self._stale(key, url, resp)
 
     async def get_follow(
         self,
@@ -261,11 +309,12 @@ class Http:
         ttl: int | None = None,
         timeout: float | None = None,
         retries: int | None = None,
+        valid: Callable[[Response], bool] | None = None,
     ) -> Response:
         """GET following redirects (for APIs like RDAP that redirect)."""
         current = url
         for _ in range(max_redirects + 1):
-            r = await self.get(current, headers=headers, ttl=ttl, timeout=timeout, retries=retries)
+            r = await self.get(current, headers=headers, ttl=ttl, timeout=timeout, retries=retries, valid=valid)
             loc = r.headers.get("location")
             if r.status in (301, 302, 303, 307, 308) and loc:
                 current = urljoin(current, loc)

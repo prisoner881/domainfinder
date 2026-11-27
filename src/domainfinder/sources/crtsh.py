@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from ..domains import registrable
-from ..http import Http
+from ..http import Http, json_answer
 from ..models import Candidate
 from ..orgnames import same_org
 from .base import CtOrgHit, Source, SourceContext, make_candidates
@@ -68,6 +68,12 @@ async def crtsh_json(http: Http, params: dict[str, str], timeout: float) -> CtRo
             http.cache.set(key, rows)
             return CtRows(rows, "database", db.limit)
     rows = await _crtsh_web(http, params, timeout)
+    if rows is None and db is not None:
+        # Both routes failed: an expired database answer beats none.
+        stale = http.cache.get_stale(f"CTDB {db.limit} " + json.dumps(params, sort_keys=True))
+        if stale is not None and isinstance(stale[0], list):
+            http.stale_hosts["crt.sh (database)"] += 1
+            return CtRows(stale[0], "database", db.limit)
     return None if rows is None else CtRows(rows, "web", WEB_CAP)
 
 
@@ -75,7 +81,8 @@ async def _crtsh_web(http: Http, params: dict[str, str], timeout: float) -> list
     last = ""
     for url, p in _variants(params):
         # Failures are never cached: crt.sh's 404s are transient, not "no data".
-        r = await http.get(url, params=p, ttl=CT_TTL, timeout=timeout, retries=2, cache_404=False)
+        r = await http.get(url, params=p, ttl=CT_TTL, timeout=timeout, retries=2, cache_404=False,
+                           valid=json_answer)  # an HTML error page with HTTP 200 must not be cached
         ctype = r.headers.get("content-type", "")
         if not r.ok or ("json" not in ctype and not r.text.lstrip().startswith(("[", "{"))):
             last = f"HTTP {r.status or r.error}"

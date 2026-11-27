@@ -5,6 +5,38 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.5.0 — 2026-11-27
+
+### Changed
+- **The cache moved to the run directory.** It is now
+  `domainfinder-cache.sqlite` in the directory the tool runs from (it was
+  `~/.cache/domainfinder/cache.sqlite`, which can be deleted).
+  `DOMAINFINDER_CACHE_DIR` still chooses another directory.
+- **Cached values are compressed** (stored web pages shrink about tenfold),
+  and entries older than 30 days are deleted when the cache is opened.
+- **Several runs can share the cache at once** (SQLite WAL mode, 30-second
+  busy timeout). A write that still cannot get the file is skipped instead of
+  ending the run with "database is locked".
+
+### Added
+- **Older answers when a fresh lookup fails.** Answers past their freshness
+  are kept for up to 30 days (`DOMAINFINDER_CACHE_MAX_STALE_DAYS`). When crt.sh,
+  an RDAP server, HackerTarget, Wikidata, SEC EDGAR, WhoisXML or WHOIS fails
+  (timeout, rate limit, outage), the older answer is used and a `-v` note
+  names the hosts. Websites and DNS never fall back.
+- A `-v` note with the cache's path, size, answers supplied and stored.
+
+### Fixed
+- **Error answers sent with HTTP 200 were cached.** HackerTarget's quota
+  message and WhoisXML error payloads could be cached for a week and replayed
+  without asking again; crt.sh, Wikidata, RDAP and ViewDNS answers are now
+  checked the same way before they are stored.
+- **DNS-over-HTTPS answers never expired.** When the system resolver did not
+  answer, DNS-over-HTTPS replies were cached with "lifetime 0", which the cache
+  read as "never expires", so DNS answers on such networks never refreshed.
+  They are no longer stored by the HTTP layer (the resolver keeps the parsed
+  answer for 6 hours).
+
 ## 1.4.2 — 2026-11-27
 
 Fixes from test runs on four more organizations (a hardware maker, a

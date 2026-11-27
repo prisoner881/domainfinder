@@ -98,11 +98,17 @@ async def whois_lookup(domain: str, cache: Cache, timeout: float = 8.0) -> RdapI
             data = await asyncio.wait_for(reader.read(65536), timeout)
             text = data.decode("utf-8", "replace")
         except Exception:  # noqa: BLE001 - blocked port, DNS failure, reset: no WHOIS evidence
-            return None
+            text = None
         finally:
             if writer is not None:
                 writer.close()
-        cache.set(key, text)
+        if text is None:
+            stale = cache.get_stale(key)  # an expired answer beats none
+            if stale is None or not isinstance(stale[0], str):
+                return None
+            text = stale[0]
+        else:
+            cache.set(key, text)
     info = RdapInfo()
     if tld == "edu" and parse_educause(text, info):
         return info

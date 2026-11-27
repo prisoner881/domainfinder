@@ -8,7 +8,7 @@ domainfinder example.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.4.2** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.4.2`. `domainfinder --version` prints that line too.
+Current version: **1.5.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.5.0`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -295,7 +295,26 @@ Each file has one entry per line, and `#` starts a comment.
 * Passive lookups only: DNS, RDAP, CT logs, one homepage fetch and one TLS handshake per domain. No port scanning.
 * crt.sh's database is used with one connection per run, one query at a time, as its read-only `guest` account intends.
 * The User-Agent identifies the tool. Each host gets its own concurrency limit and request spacing (crt.sh: 2 at a time, 1 s apart). On 429/5xx the tool backs off exponentially and honours `Retry-After` (capped at 60 s).
-* Responses are cached in an sqlite file under `~/.cache/domainfinder/` (`DOMAINFINDER_CACHE_DIR`). The default lifetime is 24 hours; RDAP and CT responses are kept 3 days and the IANA bootstrap files 7 days. Use `--no-cache` to bypass the cache.
+* Answers from external sources are cached in one SQLite file, `domainfinder-cache.sqlite`, in the directory you run the tool from. See [Cache](#cache).
+
+### Cache
+
+| Source | Fresh for | Why |
+|---|---|---|
+| crt.sh (database and web API) | 3 days | Slow, frequent timeouts and 502s |
+| RDAP (registries, registrars, IP networks) | 3 days (IP networks 6, bootstrap files 7) | Rate limits on bulk lookups |
+| WHOIS (port 43, `.edu`) | 7 days | Often blocked by networks |
+| HackerTarget, ViewDNS | 7 days | Small daily quotas |
+| Wikidata, SEC EDGAR | 7 days | Robot policies, request-rate limits |
+| WhoisXML | 7 days | Paid credits |
+| Websites (homepage and redirects) | 24 hours (`DOMAINFINDER_CACHE_TTL_HOURS`, `--cache-ttl`) | Change often |
+| DNS | 6 hours | Changes often |
+
+* **Location.** `domainfinder-cache.sqlite` in the current directory, so it sits next to your results; set `DOMAINFINDER_CACHE_DIR` to keep it elsewhere. While a run is going, SQLite keeps two side files next to it (`-wal`, `-shm`). Delete the file to start fresh, or use `--no-cache` to ignore it for one run. Before 1.5.0 the cache lived in `~/.cache/domainfinder/`; that directory can be deleted.
+* **Error answers are never cached.** Some APIs report problems with HTTP 200 (HackerTarget's "API count exceeded", WhoisXML's "insufficient credits", an HTML error page from crt.sh); those answers are checked and not stored, so the next run asks again.
+* **Older answers when a lookup fails.** An answer past its freshness is kept for up to 30 days (`DOMAINFINDER_CACHE_MAX_STALE_DAYS`). If a fresh lookup then fails (timeout, rate limit, outage), the older answer is used instead and the `-v` notes say for which hosts. Websites and DNS never fall back: their current state is the evidence.
+* **Size.** Values are compressed, and entries older than the 30-day limit are deleted when the cache is opened. The `-v` notes give the cache's path, size and how many answers it supplied.
+* **Several runs at once** can share the file (SQLite WAL mode). A write that still finds the file busy after 30 seconds is skipped, never fatal.
 
 ## Known limitations
 

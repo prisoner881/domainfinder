@@ -24,6 +24,7 @@ from ..domains import registrable
 from ..models import Candidate, Evidence, Strength
 from ..orgnames import normalize
 from .base import Source, SourceContext
+from ..http import json_answer
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class WhoisXmlSource(Source):
         r = await ctx.http.post_json(
             ENDPOINT, {**query, "apiKey": self.settings.whoisxml_key},
             cache_payload=query, ttl=TTL, timeout=60, retries=1,
+            valid=lambda resp: json_answer(resp, "domainsCount"),  # errors come with HTTP 200 too
         )
         try:
             data = r.json() if r.text else {}

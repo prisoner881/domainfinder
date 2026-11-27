@@ -87,7 +87,7 @@ class Resolver:
                 ep,
                 params={"name": name, "type": rtype},
                 headers={"Accept": "application/dns-json"},
-                ttl=0,  # the resolver keeps its own cache
+                store=False,  # the resolver caches the parsed answer with its own lifetime
                 timeout=self.timeout + 4,
                 retries=1,
             )

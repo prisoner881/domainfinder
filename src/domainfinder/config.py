@@ -24,8 +24,8 @@ def _bool(name: str, default: bool) -> bool:
 
 
 def default_cache_dir() -> Path:
-    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(base) / "domainfinder"
+    """The directory the tool runs in: the cache file sits next to the results."""
+    return Path.cwd()
 
 
 @dataclass
@@ -33,6 +33,7 @@ class Settings:
     dns_mode: str = "auto"
     cache_dir: Path = field(default_factory=default_cache_dir)
     cache_ttl_hours: int = 24
+    cache_max_stale_days: int = 30
     use_cache: bool = True
     concurrency: int = 12
     high_threshold: int = 70
@@ -75,6 +76,7 @@ class Settings:
             dns_mode=_env("DOMAINFINDER_DNS_MODE", "auto") or "auto",
             cache_dir=Path(cache_dir) if cache_dir else default_cache_dir(),
             cache_ttl_hours=_int("DOMAINFINDER_CACHE_TTL_HOURS", 24),
+            cache_max_stale_days=_int("DOMAINFINDER_CACHE_MAX_STALE_DAYS", 30),
             concurrency=_int("DOMAINFINDER_CONCURRENCY", 12),
             high_threshold=_int("DOMAINFINDER_HIGH_THRESHOLD", 70),
             review_threshold=_int("DOMAINFINDER_REVIEW_THRESHOLD", 40),

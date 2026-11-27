@@ -9,3 +9,5 @@ dist/
 .cache/
 results*.csv
 results*.json
+# domainfinder's cache (and SQLite's WAL side files)
+domainfinder-cache.sqlite*

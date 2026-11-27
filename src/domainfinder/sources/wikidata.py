@@ -18,6 +18,7 @@ from .. import USER_AGENT
 from ..domains import registrable, to_ascii
 from ..models import Candidate
 from .base import Source, SourceContext
+from ..http import json_answer
 
 ENDPOINT = "https://query.wikidata.org/sparql"
 TTL = 7 * 86400
@@ -68,7 +69,8 @@ class WikidataSource(Source):
         seed = ctx.seed.domain
         hdr = {"Accept": "application/sparql-results+json", "User-Agent": user_agent(self.settings.contact)}
         r = await ctx.http.get(ENDPOINT, params={"query": build_query(seed), "format": "json"},
-                               headers=hdr, ttl=TTL, timeout=60, retries=2, cache_404=False)
+                               headers=hdr, ttl=TTL, timeout=60, retries=2, cache_404=False,
+                               valid=lambda resp: json_answer(resp, "results"))
         if not r.ok:
             why = f"HTTP {r.status}" if r.status else r.error
             if r.status == 403:

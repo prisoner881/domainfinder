@@ -6,6 +6,7 @@ import logging
 
 from ..data import load as load_data
 from ..domains import registrable
+from ..http import json_answer
 from ..models import Candidate
 from .base import Source, SourceContext, make_candidates
 
@@ -55,6 +56,12 @@ def combine(results: list[set[str]], how: str) -> set[str]:
     return out
 
 
+
+def hackertarget_error(body: str) -> bool:
+    """HackerTarget reports quota and input errors as text with HTTP 200."""
+    b = body.strip().lower()
+    return b.startswith(("error", "api count")) or "quota" in b
+
 class HackerTargetSource(Source):
     name = "hackertarget"
     description = "HackerTarget free reverse-NS (findshareddns); small daily quota"
@@ -72,9 +79,10 @@ class HackerTargetSource(Source):
             return []
         results = []
         for h in hosts:
-            r = await ctx.http.get("https://api.hackertarget.com/findshareddns/", params={"q": h}, ttl=TTL, retries=1)
+            r = await ctx.http.get("https://api.hackertarget.com/findshareddns/", params={"q": h}, ttl=TTL, retries=1,
+                                   valid=lambda resp: not hackertarget_error(resp.text))
             body = r.text.strip()
-            if not r.ok or body.lower().startswith(("error", "api count")) or "quota" in body.lower():
+            if not r.ok or hackertarget_error(body):
                 ctx.notes.append(f"hackertarget: {h}: {body[:80] or r.status}")
                 break
             found = {d for d in (registrable(x) for x in body.splitlines()) if d}
@@ -107,6 +115,7 @@ class ViewDnsSource(Source):
             params={param: value, "apikey": self.settings.viewdns_key, "output": "json"},
             ttl=TTL,
             retries=1,
+            valid=lambda resp: json_answer(resp, "response"),
         )
         if not r.ok:
             return None

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import zlib
 
 import httpx
 import respx
@@ -80,7 +81,8 @@ async def test_preview_then_purchase_and_evidence(tmp_path):
     await http.aclose()
     # The key never reaches the cache.
     db = sqlite3.connect(tmp_path / "c.sqlite")
-    assert not any(KEY in (k + v) for k, v in db.execute("SELECT k, v FROM kv"))
+    rows = [(k, zlib.decompress(v).decode() if isinstance(v, bytes) else v) for k, v in db.execute("SELECT k, v FROM kv")]
+    assert rows and not any(KEY in (k + v) for k, v in rows)
 
 
 @respx.mock
