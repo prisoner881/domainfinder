@@ -55,11 +55,24 @@ class FakeConn:
         self.answers = list(answers)
         self.calls = []
         self.settings = []
+        self.transactions = 0
         self.closed = False
         self.broken = False
 
     def cursor(self):
         return FakeCursor(self)
+
+    def transaction(self):
+        conn = self
+
+        class Tx:
+            async def __aenter__(self):
+                conn.transactions += 1
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return Tx()
 
     async def close(self):
         self.closed = True
@@ -185,7 +198,7 @@ async def test_failed_query_falls_back_for_that_query_then_three_in_a_row_turn_t
     assert db.disabled_reason.startswith("3 failures in a row")
     assert db.queries == 1 and db.fallbacks == 4  # the sixth never reached the database
     assert len(db.conns) == 1  # a healthy connection is kept after a failed query
-    assert db.conns[0].settings[0] == "SET statement_timeout = 30000"  # crt.sh stops slow queries itself
+    assert db.conns[0].settings[0] == "SET LOCAL statement_timeout = 30000"  # crt.sh stops slow queries itself
     assert db.failures[0] == "q='a.com': no answer within 30 s"
     assert "database failures: q='a.com': no answer within 30 s" in db.summary()
     await http.aclose()
@@ -331,3 +344,57 @@ def test_settings_and_flag(monkeypatch):
 def test_module_constants():
     assert (crtsh_db.HOST, crtsh_db.PORT, crtsh_db.DBNAME, crtsh_db.USER) == ("crt.sh", 5432, "certwatch", "guest")
     assert json.dumps(to_rows(COLS, rows("adp.com")[1]))  # rows are cacheable as JSON
+
+
+# --- 1.2.2: crt.sh's connection pooler ---------------------------------------------------------
+
+@respx.mock
+async def test_connection_closed_by_the_pooler_is_replaced_and_the_query_retried():
+    respx.get(url__startswith="https://crt.sh/").respond(json=[])
+    http = Http()
+    db = CrtshDb()
+    conns = []
+
+    class IdleTimeout(Exception):
+        pass
+
+    IdleTimeout.__name__ = "ProtocolViolation"
+
+    async def connect():
+        answers = [rows("adp.com"), IdleTimeout("client_idle_timeout")] if not conns else [rows("adp.fr")]
+        conns.append(FakeConn(answers))
+        return conns[-1]
+
+    db._connect = connect
+    a = await using(db, crtsh_json(http, {"q": "adp.com"}, 30))
+    b = await using(db, crtsh_json(http, {"O": "ADP France"}, 30))
+    assert (a.backend, b.backend) == ("database", "database")
+    assert b[0]["name_value"] == "adp.fr"
+    assert len(conns) == 2 and conns[0].closed
+    assert db.failures == [] and db.fallbacks == 0  # a lost connection is not the database failing
+    assert all(c.transactions for c in conns)  # time limit and query share one transaction
+    await http.aclose()
+
+
+async def test_idle_connection_is_replaced_before_the_next_query(monkeypatch):
+    db = db_with(rows("a.com"), rows("b.com"), max_idle=30)
+    clock = [1000.0]
+    monkeypatch.setattr(crtsh_db.time, "monotonic", lambda: clock[0])
+    await db.search({"q": "a.com"}, 30)
+    clock[0] += 200  # minutes of verification later
+    await db.search({"q": "b.com"}, 30)
+    assert len(db.conns) == 2 and db.conns[0].closed and db.queries == 2
+
+
+async def test_database_searches_get_their_own_time_limit():
+    db = db_with(rows("a.com"), search_timeout=300)
+    await db.search({"O": "Automatic Data Processing, Inc."}, 120)
+    assert db.conns[0].settings == ["SET LOCAL statement_timeout = 300000"]
+
+
+def test_database_timeout_setting(monkeypatch):
+    from domainfinder.config import Settings
+
+    assert Settings().crtsh_db_timeout == 300
+    monkeypatch.setenv("DOMAINFINDER_CRTSH_DB_TIMEOUT", "600")
+    assert Settings.from_env(load_dotenv_file=False).crtsh_db_timeout == 600

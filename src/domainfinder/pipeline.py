@@ -106,7 +106,8 @@ async def run(
                             whois=settings.whois)
     from .sources.crtsh_db import CURRENT, CrtshDb
 
-    db = CrtshDb(limit=settings.crtsh_db_limit) if settings.crtsh_db else None
+    db = (CrtshDb(limit=settings.crtsh_db_limit, search_timeout=settings.crtsh_db_timeout)
+          if settings.crtsh_db else None)
     token = CURRENT.set(db)
     try:
         return await _run(seed, supplied, settings, collectors, user_orgs or [], extra_brands or [], only_sources,

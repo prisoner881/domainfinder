@@ -5,6 +5,21 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.2.2 — 2026-11-27
+
+### Fixed
+- **crt.sh's connection pooler.** The acquisitions search failed with
+  "client_idle_timeout": crt.sh closes connections left idle while
+  candidates are verified. A connection unused for 30 seconds is now
+  replaced before the next query, and a query whose connection was closed
+  under it is retried once on a new one without counting as a failure.
+- **The time limit reaches the right connection.** Through a pooler, a
+  `SET` and the query after it can land on different server connections;
+  the limit is now `SET LOCAL` inside the query's own transaction.
+- **Database searches get their own time limit**, 300 seconds by default
+  (`DOMAINFINDER_CRTSH_DB_TIMEOUT`). ADP's full certificate history did not
+  finish in the web API's 120 seconds.
+
 ## 1.2.1 — 2026-11-27
 
 ### Fixed

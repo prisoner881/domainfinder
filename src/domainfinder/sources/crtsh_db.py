@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import time
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -122,12 +123,15 @@ def describe(params: dict[str, str]) -> str:
 
 class CrtshDb:
     def __init__(self, host: str = HOST, port: int = PORT, limit: int = 50_000, connect_timeout: float = 10.0,
-                 max_failures: int = 3):
+                 max_failures: int = 3, search_timeout: float | None = None, max_idle: float = 30.0):
         self.host = host
         self.port = port
         self.limit = limit
         self.connect_timeout = connect_timeout
         self.max_failures = max_failures
+        self.search_timeout = search_timeout  # per search; None = the caller's (web API) timeout
+        self.max_idle = max_idle  # seconds a connection may sit unused before it is replaced
+        self._last_used = 0.0
         self.disabled_reason = ""
         self.queries = 0  # answered by the database
         self.fallbacks = 0  # handed to the web API
@@ -188,44 +192,70 @@ class CrtshDb:
         if self._failures >= self.max_failures:
             self._disable(f"{self._failures} failures in a row (last: {why})")
 
+    def _connection_lost(self, e: BaseException) -> bool:
+        """The connection itself went away (closed by crt.sh's pooler when
+        idle, server restart...), as opposed to the query failing."""
+        conn = self._conn
+        why = str(e)
+        return (conn is None or getattr(conn, "broken", False) or getattr(conn, "closed", False)
+                or "idle_timeout" in why or "server closed the connection" in why
+                or type(e).__name__ in ("ProtocolViolation", "AdminShutdown", "InterfaceError"))
+
+    async def _ensure_connection(self, what: str) -> bool:
+        if self._conn is not None and not getattr(self._conn, "closed", False):
+            # crt.sh's connection pooler drops idle clients; don't find out mid-query.
+            if time.monotonic() - self._last_used <= self.max_idle:
+                return True
+            await self._drop()
+        try:
+            self._conn = await self._connect()
+        except ImportError:
+            self._disable("the psycopg driver is not installed")
+            return False
+        except Exception as e:
+            if not self._connected_once:  # never reached: blocked or refused, so stop trying
+                self._disable(f"cannot connect to {self.host}:{self.port} ({_first_line(e)})")
+            else:  # it worked earlier in this run: a passing problem, not a blocked port
+                self._failed(f"reconnecting for {what}", _first_line(e))
+            return False
+        self._connected_once = True
+        self._last_used = time.monotonic()
+        return True
+
     async def _execute(self, sql: str, args: dict[str, Any], timeout: float, what: str = "query"
                        ) -> tuple[list[str], list[tuple]] | None:
-        """Run one query; None (and the reason recorded) on any failure."""
+        """Run one query; None (and the reason recorded) on any failure. A
+        connection lost under us is replaced and the query tried once more."""
         if self.disabled_reason:
             return None
         async with self._lock:  # one connection, one query at a time
-            if self.disabled_reason:
-                return None
-            if self._conn is None or getattr(self._conn, "closed", False):
+            for attempt in (1, 2):
+                if self.disabled_reason or not await self._ensure_connection(what):
+                    return None
                 try:
-                    self._conn = await self._connect()
-                except ImportError:
-                    self._disable("the psycopg driver is not installed")
+                    # One transaction, so the time limit and the query reach the
+                    # same server connection even through crt.sh's pooler; the
+                    # server stops a slow query itself and the connection stays usable.
+                    async with self._conn.transaction():
+                        async with self._conn.cursor() as cur:
+                            await cur.execute(f"SET LOCAL statement_timeout = {int(timeout * 1000)}")
+                            await asyncio.wait_for(cur.execute(sql, args), timeout + 15)
+                            records = await asyncio.wait_for(cur.fetchall(), timeout + 15)
+                            columns = [c.name for c in (cur.description or [])]
+                    self._failures = 0
+                    self._last_used = time.monotonic()
+                    return columns, records
+                except Exception as e:  # statement timeout, dropped connection, schema change...
+                    why = _first_line(e)
+                    timed_out = isinstance(e, asyncio.TimeoutError) or "statement timeout" in why
+                    if not timed_out and attempt == 1 and self._connection_lost(e):
+                        log.info("crt.sh database: connection lost before %s (%s); reconnecting", what, why)
+                        await self._drop()
+                        continue
+                    self._failed(what, f"no answer within {int(timeout)} s" if timed_out else why)
+                    await self._cancel_or_drop()
                     return None
-                except Exception as e:
-                    if not self._connected_once:  # never reached: blocked or refused, so stop trying
-                        self._disable(f"cannot connect to {self.host}:{self.port} ({_first_line(e)})")
-                    else:  # it worked earlier in this run: a passing problem, not a blocked port
-                        self._failed(f"reconnecting for {what}", _first_line(e))
-                    return None
-                self._connected_once = True
-            try:
-                async with self._conn.cursor() as cur:
-                    # The server stops a slow query itself, so the connection
-                    # stays usable and nothing keeps running on crt.sh.
-                    await cur.execute(f"SET statement_timeout = {int(timeout * 1000)}")
-                    await asyncio.wait_for(cur.execute(sql, args), timeout + 15)
-                    records = await asyncio.wait_for(cur.fetchall(), timeout + 15)
-                    columns = [c.name for c in (cur.description or [])]
-                self._failures = 0
-                return columns, records
-            except Exception as e:  # statement timeout, dropped connection, schema change...
-                why = _first_line(e)
-                if isinstance(e, asyncio.TimeoutError) or "statement timeout" in why:
-                    why = f"no answer within {int(timeout)} s"
-                self._failed(what, why)
-                await self._cancel_or_drop()
-                return None
+        return None
 
     async def _cancel_or_drop(self) -> None:
         """Keep a healthy connection; cancel anything still running; drop a broken one."""
@@ -247,7 +277,7 @@ class CrtshDb:
         q = build_query(params, self.limit)
         if q is None:
             return None
-        res = await self._execute(*q, timeout=timeout, what=describe(params))
+        res = await self._execute(*q, timeout=self.search_timeout or timeout, what=describe(params))
         if res is None:
             self.fallbacks += 1
             return None

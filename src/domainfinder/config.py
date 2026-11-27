@@ -58,6 +58,7 @@ class Settings:
     crtsh_timeout: float = 120.0
     crtsh_db: bool = True  # try crt.sh's public PostgreSQL database before its web API
     crtsh_db_limit: int = 50_000  # identities per database search (the web API stops at 10,000)
+    crtsh_db_timeout: float = 300.0  # seconds per database search (large organizations need minutes)
     idn: str = "unicode"  # how internationalized names are written out: unicode | punycode
 
     @classmethod
@@ -92,6 +93,7 @@ class Settings:
             wikidata=_bool("DOMAINFINDER_WIKIDATA", True),
             crtsh_db=_bool("DOMAINFINDER_CRTSH_DB", True),
             crtsh_db_limit=max(1000, _int("DOMAINFINDER_CRTSH_DB_LIMIT", 50_000)),
+            crtsh_db_timeout=float(max(30, _int("DOMAINFINDER_CRTSH_DB_TIMEOUT", 300))),
             acquisitions=_bool("DOMAINFINDER_ACQUISITIONS", True),
             whoisxml_search=_env("DOMAINFINDER_WHOISXML_SEARCH", "both").lower() or "both",
             whoisxml_max_pages=_int("DOMAINFINDER_WHOISXML_MAX_PAGES", 1),
