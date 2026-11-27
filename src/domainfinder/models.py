@@ -95,6 +95,9 @@ class CertInfo:
     subject_cn: str = ""
     issuer: str = ""
     sans: list[str] = field(default_factory=list)
+    sha256: str = ""  # fingerprint of the certificate itself
+    spki_sha256: str = ""  # fingerprint of its public key
+    has_scts: bool = False  # carries Certificate Transparency timestamps (publicly trusted)
     error: str = ""
 
 

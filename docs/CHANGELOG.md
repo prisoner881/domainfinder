@@ -3,6 +3,28 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.6 — 2026-11-27
+
+### Added
+- Live TLS certificate links as strong evidence (one item per domain, so a
+  single certificate is never counted twice). The certificate served for a
+  candidate also covers the seed or a verified domain; or the seed's
+  certificate covers the candidate; or the candidate serves the identical
+  certificate; or its certificate uses the same public key as the seed's or a
+  verified domain's.
+- Guards against false links:
+  - Only certificates carrying Certificate Transparency timestamps count.
+    Publicly trusted certificates do; certificates minted by TLS-intercepting
+    proxies normally don't. When the seed's certificate has none, comparisons
+    are skipped and the notes say so.
+  - A certificate only counts if it covers the name it was served for. A
+    server's default certificate, shown because someone else's DNS points at
+    that server, proves nothing.
+  - Shared hosting/CDN certificates (more than three other registrable
+    domains, fewer than half of them the seed's or verified) are ignored.
+- Certificate details recorded per domain: certificate and public-key
+  fingerprints, and whether CT timestamps are present.
+
 ## 0.9.5 — 2026-11-27
 
 ### Added

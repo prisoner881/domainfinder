@@ -116,6 +116,10 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
 
     tick("fingerprinting seed")
     seed_fp = await fingerprint(seed, collectors)
+    tls_note = ""
+    if seed_fp.cert.fetched and not seed_fp.cert.has_scts:
+        tls_note = ("tls: the seed's live certificate carries no Certificate Transparency timestamps "
+                    "(TLS interception on this network?); live-certificate comparisons are skipped")
     brand = label(seed)
     brand_labels = [brand] + [b.lower() for b in extra_brands if b and b.lower() != brand]
     if "-" in brand:
@@ -132,6 +136,8 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
 
     ctx = SourceContext(seed=seed_fp, settings=settings, collectors=collectors,
                         org_names=org_names, brand_labels=brand_labels)
+    if tls_note:
+        ctx.notes.append(tls_note)
     sources: list[Source] = [cls(settings) for cls in ALL_SOURCES]
     used, disabled = [], {}
     active = []

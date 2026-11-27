@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.5** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.5` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.6** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.6` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -141,6 +141,7 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | IP in a netblock registered to the seed's organization (or the seed's own non-CDN netblock) | strong | 50 |
 | Same TXT verification token | strong | 50 |
 | Live TLS certificate `O=` matches the seed's organization | strong | 50 |
+| Live TLS certificate shared with the seed or a verified domain: it also covers one of them, the seed's certificate covers the candidate, it is the identical certificate, or it uses the same public key | strong | 55 |
 | RDAP registrant org matches | strong | 60 |
 | CT: a current certificate with `O=` the seed's org | strong | 45 |
 | CT: only expired certificates with that `O=` (divested? e.g. broadridge.com) | weak | 15 |
@@ -162,6 +163,7 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 Guards that keep false positives out:
 
 * **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
+* **Certificate links only count when they prove control.** A certificate counts only if it carries Certificate Transparency timestamps. Publicly trusted certificates do; certificates minted by a TLS-intercepting proxy normally don't. It must also cover the name it was served for, because a server's default certificate shown for a name that someone else's DNS points at it proves nothing. A certificate covering more than three other registrable domains counts only when at least half of them are the seed's or verified, which excludes CDN and hosting certificates shared by unrelated customers.
 * **Weak evidence is never enough.** The main list needs at least one strong item.
 * **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
 * **Parked domains** go to *needs review* when their registration matches the seed's (a possible defensive registration), and are rejected otherwise.
@@ -221,7 +223,7 @@ Each file has one entry per line, and `#` starts a comment.
 * **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
 * **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky** (502s on large queries) and caps a result set at 10,000 rows. Queries are retried and cached; failures show up under `-v` notes.
-* **Live TLS `O=` needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's, so that check yields nothing. The CT-log evidence (`crtsh-org`) still works.
+* **Live TLS evidence needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's. The tool notices (no CT timestamps) and skips live-certificate comparisons, saying so in the notes. The CT-log evidence (`crtsh-org`) still works.
 * **Bot protection** on some sites answers the homepage fetch with 403. The redirect chain up to that point is still used.
 * **Sites behind shared hosting and bot protection.** University athletics and campaign sites often run on shared hosts behind a bot-blocking firewall, with privacy-protected registrations. The tool then sees no shared infrastructure; when the seed's homepage links to such a domain and the name carries the brand, it lands in *needs review*.
 * **"Operated by" is not "owned by."** A current certificate with the seed's `O=` can mean a site the seed hosts for a client (ADP runs benefits portals for its customers). Such domains usually land in *needs review*.

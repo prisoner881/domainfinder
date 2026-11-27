@@ -30,6 +30,7 @@ WEIGHTS = {
     "netblock": 50,
     "token": 50,
     "cert_org": 50,
+    "cert_link": 55,
     "rdap_org": 60,
     "ct_org_current": 45,
     "ct_org_historic": 15,
@@ -55,7 +56,7 @@ WEIGHTS = {
     "foreign_redirect": -10,
 }
 # Strong evidence that comes from shared *infrastructure* (vs. paperwork).
-INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token"}
+INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link"}
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -125,6 +126,9 @@ class Scorer:
         self.ct = ct_org_domains or {}
         self.subs = subsidiary_names or {}
         self.data = load_data()
+        # public-key fingerprint → domain, for verified domains' certificates
+        # (filled by score_all between rounds)
+        self.known_keys: dict[str, str] = {}
 
     # ------------------------------------------------------------------ util
     def _ours(self, domain: str | None, verified: set[str]) -> bool:
@@ -263,6 +267,11 @@ class Scorer:
             else:
                 add("ct_org_historic", W, f"CT: only expired certificates O={hit.org} (last {hit.latest_not_after[:10]})")
 
+        # --- TLS certificate shared with the seed or a verified domain ------------
+        link = self._cert_link(fp, verified)
+        if link:
+            add("cert_link", S, link)
+
         # --- the candidate's own Content-Security-Policy ---------------------------
         # A site's CSP lists what its operator trusts. Trusting the seed and
         # other verified domains links the operators; trusting just the seed can
@@ -365,6 +374,49 @@ class Scorer:
                 flags["registration_match"] = True
         return ev, flags
 
+    def _shared_cert(self, sans: list[str], exclude: set[str], verified: set[str]) -> tuple[bool, list[str]]:
+        """A certificate covering many unrelated registrable domains is a
+        shared hosting/CDN certificate. Returns (shared, our domains on it)."""
+        others = sorted({r for r in (registrable(x) for x in sans) if r and r not in exclude})
+        ours = [x for x in others if self._ours(x, verified)]
+        shared = len(others) > 3 and len(ours) < len(others) / 2
+        return shared, ours
+
+    def _cert_link(self, fp: Fingerprint, verified: set[str]) -> str:
+        """Evidence that one operator controls the candidate and the seed (or a
+        verified domain) from their live TLS certificates. Only certificates
+        that carry CT timestamps count (TLS interception mints certificates
+        without them), and only certificates that cover the name they were
+        served for (a server's default certificate for a name pointed at it
+        by someone else's DNS proves nothing)."""
+        from .collectors.tls import covers
+
+        d = fp.domain
+        seed = self.seed.fp.cert
+        cert = fp.cert
+        seed_ok = seed.fetched and seed.has_scts
+        cand_ok = cert.fetched and cert.has_scts and (covers(cert.sans, d) or covers(cert.sans, "www." + d))
+        parts: list[str] = []
+        if cand_ok:
+            if seed_ok and cert.sha256 and cert.sha256 == seed.sha256:
+                parts.append(f"serves the same TLS certificate as {self.seed.fp.domain}")
+            else:
+                shared, ours = self._shared_cert(cert.sans, {d}, verified)
+                if ours and not shared:
+                    parts.append(f"its TLS certificate also covers {', '.join(ours[:3])}")
+                key_owner = None
+                if seed_ok and cert.spki_sha256 and cert.spki_sha256 == seed.spki_sha256:
+                    key_owner = self.seed.fp.domain
+                elif cert.spki_sha256 and self.known_keys.get(cert.spki_sha256, d) != d:
+                    key_owner = self.known_keys[cert.spki_sha256]
+                if key_owner:
+                    parts.append(f"its TLS certificate uses the same public key as {key_owner}'s")
+        if seed_ok and not any("same TLS certificate" in p for p in parts) and covers(seed.sans, d):
+            shared, _ = self._shared_cert(seed.sans, {self.seed.fp.domain, d}, verified)
+            if not shared:
+                parts.append(f"{self.seed.fp.domain}'s TLS certificate also covers it")
+        return "; ".join(parts)
+
     def _brand_org(self, org: str) -> bool:
         """'ADP, Inc.' / 'ADP France' for brand 'adp': likely the seed's own
         entity under its short name. Neither a match nor a conflict — 'Groupe ADP'
@@ -460,4 +512,9 @@ def score_all(scorer: Scorer, items: list[tuple[Fingerprint, Candidate]], max_ro
         if now == verified:
             break
         verified = now
+        # Public keys of verified domains' (publicly trusted) certificates.
+        scorer.known_keys = {
+            fp.cert.spki_sha256: fp.domain for fp, _ in items
+            if fp.domain in verified and fp.cert.has_scts and fp.cert.spki_sha256
+        }
     return results

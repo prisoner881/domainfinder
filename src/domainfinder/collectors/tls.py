@@ -37,9 +37,43 @@ def parse_der(der: bytes) -> CertInfo:
     try:
         ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
         info.sans = [n.lower() for n in ext.value.get_values_for_type(x509.DNSName)][:500]
-    except x509.ExtensionNotFound:
+    except (x509.ExtensionNotFound, ValueError):
         pass
+    import hashlib
+
+    from cryptography.hazmat.primitives import serialization
+
+    info.sha256 = hashlib.sha256(der).hexdigest()
+    try:
+        spki = cert.public_key().public_bytes(serialization.Encoding.DER,
+                                              serialization.PublicFormat.SubjectPublicKeyInfo)
+        info.spki_sha256 = hashlib.sha256(spki).hexdigest()
+    except (ValueError, TypeError):
+        pass
+    info.has_scts = has_scts(der)
     return info
+
+
+# DER encoding of OID 1.3.6.1.4.1.11129.2.4.2 (embedded SCT list). Publicly
+# trusted certificates carry it; certificates minted by a TLS-intercepting
+# proxy normally do not, which is how interception is told apart.
+_SCT_OID_DER = bytes.fromhex("060a2b06010401d679020402")
+
+
+def has_scts(der: bytes) -> bool:
+    return _SCT_OID_DER in der
+
+
+def covers(sans: list[str], host: str) -> bool:
+    """Does a certificate with these SANs cover `host` (exact or one-label wildcard)?"""
+    host = host.lower().rstrip(".")
+    for san in sans:
+        san = san.lower().rstrip(".")
+        if san == host:
+            return True
+        if san.startswith("*.") and "." in host and host.split(".", 1)[1] == san[2:]:
+            return True
+    return False
 
 
 async def fetch_cert(host: str, port: int = 443, timeout: float = 8.0) -> CertInfo:
