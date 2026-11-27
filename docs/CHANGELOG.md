@@ -3,6 +3,14 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.8 — 2026-11-27
+
+### Changed
+- The start-of-run line is now a framed, coloured banner: the name and
+  version, plus a line each on what the tool does and how. It is printed on
+  stderr as before. When stderr isn't a terminal (logs, pipes, CI) it stays
+  the plain `domainfinder <version>` line.
+
 ## 0.9.7 — 2026-11-27
 
 ### Added

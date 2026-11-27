@@ -8,7 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import BANNER
+from . import BANNER, TAGLINE
 from .config import Settings
 from .domains import registrable
 
@@ -16,8 +16,7 @@ from .domains import registrable
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="domainfinder",
-        description=f"{BANNER}: find more domains owned by the company behind a seed domain, "
-                    "each backed by evidence.",
+        description=f"{BANNER}: {TAGLINE}",
     )
     p.add_argument("domain", nargs="?", help="seed root domain, e.g. adp.com")
     p.add_argument("-o", "--output", type=Path, help="also write results to this file (.csv or .json)")
@@ -67,7 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     # Announce name and version on every run (stderr keeps --json output clean).
-    print(BANNER, file=sys.stderr, flush=True)
+    from .banner import show as show_banner
+
+    show_banner()
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.WARNING,
         format="%(levelname)s %(name)s: %(message)s",
