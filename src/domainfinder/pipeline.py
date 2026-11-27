@@ -269,7 +269,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
                     collect_org_hits(rows, [name], hits)
             hits.pop(seed, None)
             for dom, hit in hits.items():
-                hit.org = f"{hit.org} (acquired company; name from {origin})"
+                hit.acquired = origin
                 scorer.ct.setdefault(dom, hit)  # evidence in the seed's own name wins
                 if dom not in known and dom not in second:
                     second[dom] = Candidate(domain=dom, sources={"acq-ct": f"certificate O={name} (name from {origin})"})
@@ -356,7 +356,10 @@ def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp
 
     found: dict[str, Candidate] = {}
     known = set(known) | {r.domain for r in results}
-    ours = {seed} | {r.domain for r in results if r.classification in (Classification.OWNED, Classification.REVIEW)}
+    # Only proven domains vouch for a certificate: two needs-review domains on
+    # one vendor certificate (athletics sites on the vendor's shared
+    # certificate) would otherwise make it look like ours.
+    ours = {seed} | {r.domain for r in results if r.classification is Classification.OWNED}
 
     def add(cands: list[Candidate]):
         for c in cands:

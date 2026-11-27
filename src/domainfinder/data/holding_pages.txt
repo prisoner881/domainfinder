@@ -1,7 +1,10 @@
 # Brand-protection holding pages: a registrar parks client domains that are
 # registered but unused. "ip:" lines are holding-page addresses, "ns:" lines
 # are holding nameserver domains. Owned-but-idle domains live here.
-ip:15.197.70.98
-ns:markmonitor.com
-ns:markmonitor.zone
-ns:cscdns.net
+# The second word names the registrar running it (matched against the
+# registrar's name): where a registry publishes no registration data, a
+# domain parked on this infrastructure is at that registrar.
+ip:15.197.70.98 markmonitor
+ns:markmonitor.com markmonitor
+ns:markmonitor.zone markmonitor
+ns:cscdns.net csc

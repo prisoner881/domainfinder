@@ -46,6 +46,7 @@ class ReferenceData:
     brand_registrars: tuple[str, ...]
     privacy_proxies: tuple[str, ...]
     common_third_party: frozenset[str] = frozenset()
+    holding_registrars: dict[str, str] = field(default_factory=dict)  # holding IP / NS domain -> registrar
     _org_res: tuple[re.Pattern, ...] = field(default=(), repr=False)
 
     def is_shared_dns(self, host: str) -> bool:
@@ -65,6 +66,17 @@ class ReferenceData:
 
     def is_holding_ns(self, host: str) -> bool:
         return _host_matches(host, list(self.holding_ns))
+
+    def holding_registrar(self, ips: list[str], ns: list[str]) -> str:
+        """The registrar whose holding infrastructure parks a domain ("" if none)."""
+        for ip in ips:
+            if ip in self.holding_registrars:
+                return self.holding_registrars[ip]
+        if ns and all(self.is_holding_ns(h) for h in ns):
+            for dom in self.holding_ns:
+                if _host_matches(ns[0], [dom]):
+                    return self.holding_registrars.get(dom, "")
+        return ""
 
     def is_shared_hosting_org(self, org: str) -> bool:
         org = (org or "").lower()
@@ -115,8 +127,10 @@ def load() -> ReferenceData:
         shared_hosting_orgs=tuple(orgs),
         parking=tuple(_read_lines("parking_providers.txt")),
         parking_markers=tuple(_read_lines("parking_markers.txt")),
-        holding_ips=frozenset(h[3:] for h in holding if h.startswith("ip:")),
-        holding_ns=tuple(h[3:] for h in holding if h.startswith("ns:")),
+        holding_ips=frozenset(h[3:].split()[0] for h in holding if h.startswith("ip:")),
+        holding_ns=tuple(h[3:].split()[0] for h in holding if h.startswith("ns:")),
+        holding_registrars={h[3:].split()[0]: h.split()[1] for h in holding
+                            if h[:3] in ("ip:", "ns:") and len(h.split()) > 1},
         brand_registrars=tuple(_read_lines("brand_protection_registrars.txt")),
         privacy_proxies=tuple(_read_lines("privacy_proxies.txt")),
         common_third_party=frozenset(_read_lines("common_third_party.txt")),

@@ -41,6 +41,8 @@ WEIGHTS = {
     "rdap_org": 60,
     "ct_org_current": 45,
     "ct_org_historic": 15,
+    "ct_org_acquired": 25,
+    "ct_org_acquired_historic": 5,
     "analytics": 25,
     "spf_seed": 35,
     "spf_shared": 20,
@@ -94,7 +96,8 @@ CHANNELS = {
              "dmarc_auth", "dmarc_vendor", "dmarc_to_seed"),
     "hosting": ("netblock", "namespace_www"),
     "token": ("token",),
-    "certificate": ("cert_link", "ct_cocert", "cert_org", "ct_org_current", "ct_org_historic"),
+    "certificate": ("cert_link", "ct_cocert", "cert_org", "ct_org_current", "ct_org_historic",
+                    "ct_org_acquired", "ct_org_acquired_historic"),
     "website": ("redirect", "csp_trust", "csp_trust_brand", "csp_trust_one", "analytics",
                 "seed_link", "seed_link_brand"),
     "registration": ("rdap_org", "whois_org", "whois_email", "whois_email_same", "whois_phone", "whois_street",
@@ -345,7 +348,17 @@ class Scorer:
                 add("different_org_rdap", N, f"RDAP registrant is {rorg}")
 
         hit = self.ct.get(d)
-        if hit and not any(e.kind == "cert_org" for e in ev):
+        if hit and hit.acquired:
+            # Certificates in the name of a company learned from one of our
+            # domains (an acquisition, but possibly a joint-venture partner or
+            # a client): they show that company controls the domain, not us.
+            if hit.current:
+                add("ct_org_acquired", M, f"CT: current certificate O={hit.org}, a name found on {hit.acquired} "
+                    f"(valid to {hit.latest_not_after[:10]})")
+            else:
+                add("ct_org_acquired_historic", W, f"CT: only expired certificates O={hit.org}, a name found on "
+                    f"{hit.acquired} (last {hit.latest_not_after[:10]})")
+        elif hit and not any(e.kind == "cert_org" for e in ev):
             if hit.current:
                 add("ct_org_current", S, f"CT: current certificate O={hit.org} (valid to {hit.latest_not_after[:10]})")
             else:
@@ -423,6 +436,13 @@ class Scorer:
             and not data.is_proxy_registrant(cr.registrant_org, cr.registrar)
         )
         brand_registrar = self.data.is_brand_registrar(cr.registrar)
+        holder = self.data.holding_registrar(fp.a, fp.ns)
+        registrar_inferred = False
+        if not cr.registrar and holder and holder in normalize(sr.registrar).split() and self.data.is_brand_registrar(sr.registrar):
+            # No registration data published (many ccTLDs), but the domain is
+            # parked on the holding infrastructure of the seed's own
+            # brand-protection registrar, which serves only its clients.
+            same_registrar = brand_registrar = registrar_inferred = True
         if same_registrar and same_region:
             flags["registration_match"] = True
             if brand_registrar:
@@ -450,7 +470,10 @@ class Scorer:
                 else:
                     add("held", M, "held/inactive at the seed's brand-protection registrar, same registrant region")
             elif same_registrar and brand_registrar and brand:
-                add("held_brand_registrar", M, "held/inactive at the seed's brand-protection registrar, brand name "
+                where = (f"on the holding infrastructure of the seed's brand-protection registrar ({sr.registrar}; "
+                         "no registration data published)" if registrar_inferred
+                         else "at the seed's brand-protection registrar")
+                add("held_brand_registrar", M, f"held/inactive {where}, brand name "
                     f"(registrant region {cr.region_key() or 'unknown'} ≠ {sr.region_key() or 'unknown'})")
             else:
                 add("held_other", I, "registrar holding page", 0)

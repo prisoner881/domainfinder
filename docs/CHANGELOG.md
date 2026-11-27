@@ -5,6 +5,31 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.4.1 — 2026-11-27
+
+Fixes from test runs on adp.com, docusign.com, globalpayments.com, jamf.com
+and rmu.edu.
+
+### Fixed
+- **Certificate hop pulled in a vendor's customers.** Two needs-review
+  domains on one vendor certificate (rmucolonials.com and rmuclubsports.com
+  on an athletics vendor's shared certificate) vouched for each other, and
+  the certificate's ~50 other college athletics domains were verified as
+  candidates. Only the seed and owned domains now vouch for a certificate.
+- **Certificates in an "acquired" company's name counted like the seed's.**
+  The name learned for the `acq-ct` search can be a joint-venture partner:
+  commerz-globalpay.com (Global Payments' joint venture) carries Commerzbank's
+  name, and Commerzbank's domains scored +45 strong. Such certificates are now
+  their own evidence: `ct_org_acquired` (medium, 25) and
+  `ct_org_acquired_historic` (weak, 5), not evidence of control.
+- **Held ccTLD domains redirecting to the seed stayed in needs review.**
+  Registries such as .ae, .be, .ch and .co.nz publish no registration data,
+  so the tool could not see the registrar. A domain parked on the holding
+  infrastructure of the seed's own brand-protection registrar (MarkMonitor's
+  nameservers or holding address) now counts as at that registrar: 25
+  DocuSign ccTLDs redirecting to docusign.com become owned. Without a
+  redirect such a domain still needs review.
+
 ## 1.4.0 — 2026-11-27
 
 ### Changed

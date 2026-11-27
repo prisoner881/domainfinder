@@ -24,6 +24,7 @@ class CtOrgHit:
     count: int = 0
     latest_not_after: str = ""
     current: bool = False
+    acquired: str = ""  # set for hits in an acquired company's name: the owned domain the name came from
 
 
 @dataclass

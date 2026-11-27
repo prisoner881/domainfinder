@@ -190,8 +190,8 @@ async def test_pipeline_searches_ct_for_acquisition_names(monkeypatch, tmp_path)
     by = {r.domain: r for r in rep.results}
     assert any(c.get("O") == "Workforce Software, LLC" for c in calls)
     assert by["wfs.cloud"].sources == {"acq-ct": "certificate O=Workforce Software, LLC (name from workforcesoftware.com)"}
-    assert "ct_org_current" in kinds(by["wfs.cloud"])
-    assert by["wfs.cloud"].classification is C.OWNED  # CT (acquired name) + same NS set + registration
+    assert "ct_org_acquired" in kinds(by["wfs.cloud"])
+    assert by["wfs.cloud"].classification is C.OWNED  # same NS set + registration (+ CT in the acquired name)
     assert any(n.startswith("acquisitions: ") for n in rep.notes)
 
 
