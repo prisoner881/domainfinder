@@ -129,6 +129,9 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
 
     tick("fingerprinting seed")
     seed_fp = await fingerprint(seed, collectors)
+    ns_stats = {"checked": 0, "changed": 0}
+    if seed_fp.ns:  # the seed's own set is what every candidate is compared with
+        await refresh_ns(seed_fp, collectors.resolver, ns_stats)
     tls_note = ""
     if seed_fp.cert.fetched and not seed_fp.cert.has_scts:
         tls_note = ("tls: the seed's live certificate carries no Certificate Transparency timestamps "
@@ -229,6 +232,8 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         async with sem:
             try:
                 fp = await fingerprint(c.domain, collectors)
+                if ns_partial(fp.ns, seed_fp.ns):
+                    await refresh_ns(fp, collectors.resolver, ns_stats)
             except Exception as e:
                 log.exception("fingerprint %s failed", c.domain)
                 fp = Fingerprint(domain=c.domain, errors=[f"{type(e).__name__}: {e}"])
@@ -299,6 +304,9 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
             verified_count += len(picked)
     if second or scorer.ct:
         results = score_all(scorer, items)
+    if ns_stats["checked"]:
+        ctx.notes.append(f"dns: {ns_stats['checked']} nameserver set(s) only partly matching the seed's re-read from "
+                         f"the domains' own nameservers; {ns_stats['changed']} changed")
     from .sources.crtsh_db import CURRENT
 
     db = CURRENT.get()
@@ -310,6 +318,33 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         candidates_total=total, candidates_verified=verified_count, http_stats=dict(collectors.http.stats),
         root_check=root,
     )
+
+
+def ns_partial(ns: list[str], seed_ns: list[str]) -> bool:
+    """Shares some but not all nameservers with the seed: possibly a partial
+    answer (a registry's delegation) rather than the domain's real set."""
+    a, b = set(ns), set(seed_ns)
+    return bool(a & b) and a != b
+
+
+async def refresh_ns(fp: Fingerprint, resolver, stats: dict[str, int] | None = None) -> None:
+    """Replace a resolver's NS answer with the set the domain's own
+    nameservers publish, when one of them answers authoritatively."""
+    ask = getattr(resolver, "authoritative_ns", None)
+    if ask is None:
+        return
+    try:
+        ans = await ask(fp.domain, fp.ns)
+    except Exception as e:  # never let a second opinion break the fingerprint
+        log.debug("authoritative NS for %s failed: %s", fp.domain, e)
+        return
+    if stats is not None:
+        stats["checked"] = stats.get("checked", 0) + 1
+    if ans.status == "ok" and ans.records and sorted(set(ans.records)) != sorted(set(fp.ns)):
+        log.debug("NS of %s: resolver said %s, its nameservers say %s", fp.domain, fp.ns, ans.records)
+        fp.ns = sorted(set(ans.records))
+        if stats is not None:
+            stats["changed"] = stats.get("changed", 0) + 1
 
 
 def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp: bool = True,

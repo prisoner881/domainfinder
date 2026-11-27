@@ -5,6 +5,24 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.2.3 — 2026-11-27
+
+### Fixed
+- **Nameserver evidence no longer changes from run to run.** A resolver may
+  answer an NS query with a registry's delegation, which for some ccTLDs
+  lists only part of the set: adp.lk, adplabs.com.br, adpservices.cl and
+  others matched ADP's ten nameservers on one run and five or six on the
+  next, and dropped to needs review. When a domain's set (or the seed's)
+  shares some but not all nameservers with the seed, the tool now asks one
+  of the domain's own nameservers directly and uses its authoritative
+  answer. The comparison itself is unchanged (a partial set still only
+  "overlaps").
+  - Only authoritative answers are accepted; any failure keeps the
+    resolver's answer. After five failures in a row (port 53 blocked or
+    intercepted), the check stops for the run.
+  - A `-v` note: "dns: N nameserver set(s) only partly matching the seed's
+    re-read from the domains' own nameservers; M changed".
+
 ## 1.2.2 — 2026-11-27
 
 ### Fixed

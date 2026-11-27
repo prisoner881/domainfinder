@@ -49,6 +49,8 @@ class Resolver:
         self.timeout = timeout
         self._probe_lock = asyncio.Lock()
         self._effective: str | None = None if mode == "auto" else mode
+        self._auth_failures = 0  # consecutive failed authoritative NS lookups
+        self.auth_max_failures = 5
 
     async def _system(self, name: str, rtype: str) -> DnsAnswer:
         import dns.asyncresolver
@@ -117,6 +119,53 @@ class Resolver:
                 recs = fixed
             return DnsAnswer("ok" if recs else "nodata", recs)
         return DnsAnswer("error", error=last_err)
+
+    async def authoritative_ns(self, domain: str, nameservers: list[str], max_servers: int = 3) -> DnsAnswer:
+        """The domain's NS set as its own nameservers publish it (child zone).
+
+        A recursive resolver may answer an NS query with the parent zone's
+        delegation instead, which for some registries lists only part of the
+        set. Asking one of the domain's nameservers directly and accepting only
+        an authoritative answer gives the set its owner configured. Any
+        failure (port 53 blocked, timeouts, lame servers) returns "error" and
+        the caller keeps what it had."""
+        import dns.asyncquery
+        import dns.exception
+        import dns.flags
+        import dns.message
+        import dns.rcode
+        import dns.rdatatype
+
+        key = f"dns-auth {domain.lower()} NS"
+        cached = self.cache.get(key, DNS_TTL)
+        if cached is not None:
+            return DnsAnswer(**cached)
+        if self._auth_failures >= self.auth_max_failures:  # direct DNS looks blocked on this network
+            return DnsAnswer("error", error="direct DNS queries are not getting answers on this network")
+        last = "no nameserver answered"
+        for host in nameservers[:max_servers]:
+            addrs = await self.query(host, "A")
+            ips = [r for r in addrs.records if r.count(".") == 3][:1]
+            for ip in ips:
+                try:
+                    q = dns.message.make_query(domain, "NS")
+                    resp, _tcp = await dns.asyncquery.udp_with_fallback(q, ip, timeout=self.timeout)
+                except (dns.exception.DNSException, OSError, ValueError) as e:
+                    last = f"{host}: {type(e).__name__}"
+                    continue
+                if resp.rcode() != dns.rcode.NOERROR or not (resp.flags & dns.flags.AA):
+                    last = f"{host}: not authoritative"
+                    continue
+                recs = sorted({_norm("NS", rr.to_text()) for rrset in resp.answer
+                               if rrset.rdtype == dns.rdatatype.NS for rr in rrset})
+                if recs:
+                    self._auth_failures = 0
+                    ans = DnsAnswer("ok", recs)
+                    self.cache.set(key, ans.__dict__)
+                    return ans
+                last = f"{host}: empty answer"
+        self._auth_failures += 1
+        return DnsAnswer("error", error=last)
 
     async def _pick_mode(self) -> str:
         if self._effective:

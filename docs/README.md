@@ -145,6 +145,8 @@ The same collector runs on the seed and on every candidate. It uses only passive
 
 DNS uses the system resolver. If the system resolver does not answer, it switches to DNS-over-HTTPS (dns.google, then Cloudflare).
 
+**Nameserver sets are double-checked when they only partly match the seed's.** A resolver sometimes answers an NS query with the registry's delegation, which for some ccTLDs lists only part of the set, so the same domain could match 10/10 on one run and 6/10 on the next. When a domain (or the seed itself) shares some but not all nameservers with the seed, the tool asks one of the domain's own nameservers directly and uses its authoritative answer. This never loosens the comparison; it only makes sure the full set is compared. If direct DNS queries (port 53) are blocked or intercepted on your network, the check gives up after five failures and the resolver's answer is used as before. A `-v` note says how many sets were re-read and how many changed.
+
 ### crt.sh: database first, web API second
 
 Every crt.sh search (`crtsh-org`, `crtsh-san`, `acq-ct`, and the seed's organization name) goes first to crt.sh's public, read-only PostgreSQL database (`guest@crt.sh:5432`, database `certwatch`), using the same SQL crt.sh's own search runs. If that fails for any reason, the same search goes to crt.sh's web API.
