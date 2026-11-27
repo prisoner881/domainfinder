@@ -158,7 +158,7 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 | `cert-san` | ✓ | Same second pass: domains on the (publicly trusted) TLS certificate of owned and needs-review domains. |
 | `acq-ct` | ✓ | Same second pass: when an owned domain proven by two or more infrastructure matches carries another company's name on its certificate or registration (an acquisition), crt.sh is searched for certificates in that name too. Up to five names. Turn it off with `DOMAINFINDER_ACQUISITIONS=0`. |
 | `edgar` | ✓ | SEC EDGAR Exhibit 21 subsidiaries → `<name>.com` guesses. Needs `DOMAINFINDER_SEC_USER_AGENT` (SEC policy). |
-| `wikidata` | ✓ | Wikidata: finds the organization whose official website is exactly the seed, then its subsidiaries' official websites ("has subsidiary", "parent organization", "owned by"; one level). Turn it off with `DOMAINFINDER_WIKIDATA=0`. |
+| `wikidata` | ✓ | Wikidata: finds the organization whose official website is exactly the seed, then its subsidiaries' official websites ("has subsidiary", "parent organization", "owned by"; one level). Turn it off with `DOMAINFINDER_WIKIDATA=0`. If Wikidata answers HTTP 403, set `DOMAINFINDER_CONTACT` (Wikimedia asks automated clients for contact details; sent to Wikidata only). |
 | `hackertarget` | ✓ | Reverse NS (`findshareddns`). For managed-DNS pools it intersects several of the seed's NS hosts, which approximates "same NS set". Small daily quota; turn it off with `--no-hackertarget`. |
 | `viewdns` | free key | Reverse NS and reverse MX. Needs `VIEWDNS_API_KEY`. |
 | `securitytrails` | paid | Stub: reverse WHOIS / NS / MX, associated domains. |

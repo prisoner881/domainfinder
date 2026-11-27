@@ -41,6 +41,7 @@ class Settings:
     hackertarget: bool = True
     shared_ns_threshold: int = 5000
     sec_user_agent: str = ""
+    contact: str = ""  # optional contact added to the User-Agent for Wikidata (Wikimedia policy)
     viewdns_key: str = field(default="", repr=False)
     securitytrails_key: str = field(default="", repr=False)
     whoisxml_key: str = field(default="", repr=False)
@@ -77,6 +78,7 @@ class Settings:
             hackertarget=_bool("DOMAINFINDER_HACKERTARGET", True),
             shared_ns_threshold=_int("DOMAINFINDER_SHARED_NS_THRESHOLD", 5000),
             sec_user_agent=_env("DOMAINFINDER_SEC_USER_AGENT"),
+            contact=_env("DOMAINFINDER_CONTACT"),
             viewdns_key=_env("VIEWDNS_API_KEY"),
             securitytrails_key=_env("SECURITYTRAILS_API_KEY"),
             whoisxml_key=_env("WHOISXML_API_KEY"),

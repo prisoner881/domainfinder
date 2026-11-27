@@ -21,6 +21,11 @@ TAG = re.compile(r"<[^>]+>")
 NOT_NAMES = re.compile(r"^(name|jurisdiction|state|country|subsidiar|percent|owned|organized|incorporat|\(?\d)", re.I)
 
 
+# Exhibit 21 file names vary by filer: ex21.htm, ex-21.htm, ex211.htm,
+# adp-20260630xexhibit21.htm, exhibit21_1.htm ...
+EX21_NAME = re.compile(r"(?:ex|exhibit)[-_.]?21", re.I)
+HREF = re.compile(r'href="([^"]+)"', re.I)
+
 ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.I | re.S)
 TABLE = re.compile(r"<table[^>]*>(.*?)</table>", re.I | re.S)
 
@@ -60,6 +65,19 @@ def subsidiary_names(doc: str) -> list[str]:
         if text not in names:
             names.append(text)
     return names
+
+
+def ex21_from_index(page: str) -> list[str]:
+    """Exhibit 21 documents from a filing's -index.htm, by their declared
+    document type (EX-21, EX-21.1, ...), whatever the file is called."""
+    out = []
+    for row in ROW.findall(page):
+        cells = [_text(c) for c in CELL.findall(row)]
+        if any(re.fullmatch(r"EX-21(\.\d+)?", c, re.I) for c in cells):
+            m = HREF.search(row)
+            if m:
+                out.append(m.group(1).rsplit("/", 1)[-1])
+    return out
 
 
 def guesses(name: str) -> list[str]:
@@ -110,14 +128,22 @@ class EdgarSource(Source):
             ctx.notes.append("edgar: no 10-K found")
             return []
         base = ARCHIVE.format(cik=cik, acc=acc)
-        r = await ctx.http.get(base + "index.json", headers=hdr, ttl=TTL)
+        dashed = f"{acc[:10]}-{acc[10:12]}-{acc[12:]}"
+        r = await ctx.http.get(base + "index.json", headers=hdr, ttl=TTL, cache_404=False)
+        index_status = r.status
         try:
             items = r.json()["directory"]["item"] if r.ok else []
         except (ValueError, KeyError):
             items = []
-        ex21 = [i["name"] for i in items if re.search(r"ex-?21", i.get("name", ""), re.I)]
+        ex21 = [i["name"] for i in items if EX21_NAME.search(i.get("name", ""))]
+        if not ex21:  # unusual file name: the filing index declares each document's type
+            r = await ctx.http.get(base + f"{dashed}-index.htm", headers=hdr, ttl=TTL)
+            ex21 = ex21_from_index(r.text) if r.ok else []
+            if not r.ok and index_status != 200:
+                ctx.notes.append(f"edgar: filing index unavailable (HTTP {r.status or index_status or r.error})")
+                return []
         if not ex21:
-            ctx.notes.append("edgar: latest 10-K has no Exhibit 21 file")
+            ctx.notes.append(f"edgar: latest 10-K ({dashed}) lists no Exhibit 21 document")
             return []
         r = await ctx.http.get(base + ex21[0], headers=hdr, ttl=TTL)
         if not r.ok:

@@ -466,7 +466,10 @@ class Scorer:
                 if ours and not shared:
                     parts.append(f"its TLS certificate also covers {', '.join(ours[:3])}")
                 key_owner = None
-                if seed_ok and cert.spki_sha256 and cert.spki_sha256 == seed.spki_sha256:
+                if shared:  # a shared certificate's key is the host's, not the owner's
+                    pass
+                elif (seed_ok and cert.spki_sha256 and cert.spki_sha256 == seed.spki_sha256
+                        and not self._shared_cert(seed.sans, {self.seed.fp.domain}, verified)[0]):
                     key_owner = self.seed.fp.domain
                 elif cert.spki_sha256 and self.known_keys.get(cert.spki_sha256, d) != d:
                     key_owner = self.known_keys[cert.spki_sha256]
@@ -573,9 +576,30 @@ def score_all(scorer: Scorer, items: list[tuple[Fingerprint, Candidate]], max_ro
         if now == verified:
             break
         verified = now
-        # Public keys of verified domains' (publicly trusted) certificates.
-        scorer.known_keys = {
-            fp.cert.spki_sha256: fp.domain for fp, _ in items
-            if fp.domain in verified and fp.cert.has_scts and fp.cert.spki_sha256
-        }
+        scorer.known_keys = usable_keys(scorer, [fp for fp, _ in items], verified)
     return results
+
+
+def usable_keys(scorer: Scorer, fps: list[Fingerprint], verified: set[str]) -> dict[str, str]:
+    """Public keys of verified domains' (publicly trusted) certificates that
+    can link other domains to them. A key is left out when its certificate is
+    a shared one (mostly other organizations' names on it), or when the key
+    is served for many domains that are mostly not ours: a hosting provider
+    that reuses one key across its customers' certificates."""
+    users: dict[str, set[str]] = {}
+    for fp in fps:
+        if fp.cert.has_scts and fp.cert.spki_sha256:
+            users.setdefault(fp.cert.spki_sha256, set()).add(fp.domain)
+    keys: dict[str, str] = {}
+    for fp in sorted(fps, key=lambda f: f.domain):
+        key = fp.cert.spki_sha256
+        if fp.domain not in verified or not fp.cert.has_scts or not key or key in keys:
+            continue
+        if scorer._shared_cert(fp.cert.sans, {fp.domain}, verified)[0]:
+            continue
+        others = users[key] - {fp.domain}
+        ours = [d for d in others if scorer._ours(d, verified)]
+        if len(others) > 3 and len(ours) < len(others) / 2:
+            continue
+        keys[key] = fp.domain
+    return keys

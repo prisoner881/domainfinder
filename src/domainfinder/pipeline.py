@@ -308,6 +308,7 @@ def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp
 
     found: dict[str, Candidate] = {}
     known = set(known) | {r.domain for r in results}
+    ours = {seed} | {r.domain for r in results if r.classification in (Classification.OWNED, Classification.REVIEW)}
 
     def add(cands: list[Candidate]):
         for c in cands:
@@ -328,8 +329,12 @@ def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp
         cert = f.cert
         if (use_certs and cert.fetched and cert.has_scts
                 and (covers(cert.sans, r.domain) or covers(cert.sans, "www." + r.domain))):
-            regs = {registrable(x) for x in cert.sans} - {None}
-            if len(regs) <= 50:  # a CDN certificate shared by unrelated customers adds noise only
+            # A certificate naming several other domains, none of them known
+            # to be ours, is a shared one (a CDN, or a vendor hosting the
+            # site): its names are the vendor's customers, not sister domains.
+            others = {registrable(x) for x in cert.sans} - {None, r.domain}
+            shared = len(others) > 50 or (len(others) > 3 and not others & ours)
+            if not shared:
                 add(make_candidates(cert.sans, "cert-san", seed, f"on the TLS certificate of {r.domain}"))
     return list(found.values())
 

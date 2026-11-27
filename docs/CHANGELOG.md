@@ -5,6 +5,29 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.1.1 — 2026-11-27
+
+### Fixed
+- **Vendor-hosted certificates no longer link unrelated domains.** When an
+  owned domain is hosted by a vendor (adpunemploymentclaims.com on an
+  Experian certificate), the vendor's other customers sharing that
+  certificate's public key reached "needs review". A public key now links
+  domains only when its certificate is not a shared one (mostly other
+  organizations' names) and the key is not served for many domains that are
+  mostly not ours (a host reusing one key across customers). The same guard
+  applies to a key shared with the seed.
+- **The certificate hop skips vendor certificates.** A certificate naming
+  more than three other domains, none of them known to be ours, no longer
+  feeds `cert-san` candidates (it added two dozen Experian domains for ADP).
+- **EDGAR finds Exhibit 21 under any file name.** Names such as
+  `exhibit21.htm` were missed ("latest 10-K has no Exhibit 21 file"); when
+  no file name matches, the filing index is read for the document declared
+  as type EX-21. An unreachable index is now reported as such.
+- **Wikidata 403 explained.** The note now carries Wikimedia's reason, and
+  the optional `DOMAINFINDER_CONTACT` setting adds contact details to the
+  User-Agent for Wikidata queries only (Wikimedia's robot policy asks for
+  them). Refusals are never cached.
+
 ## 1.1.0 — 2026-11-27
 
 ### Added

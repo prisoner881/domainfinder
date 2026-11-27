@@ -11,12 +11,31 @@ verified like any other. One level deep.
 
 from __future__ import annotations
 
+import html as htmllib
+import re
+
+from .. import USER_AGENT
 from ..domains import registrable, to_ascii
 from ..models import Candidate
 from .base import Source, SourceContext
 
 ENDPOINT = "https://query.wikidata.org/sparql"
 TTL = 7 * 86400
+
+
+def user_agent(contact: str) -> str:
+    """Wikimedia's robot policy asks automated clients for contact details and
+    may refuse (HTTP 403) a client without them. Added only when the user has
+    set DOMAINFINDER_CONTACT themselves."""
+    contact = " ".join(contact.split())
+    return f"{USER_AGENT[:-1]}; contact: {contact})" if contact else USER_AGENT
+
+
+def refusal_reason(text: str) -> str:
+    """A short reason from an error page (HTML or plain text)."""
+    text = re.sub(r"(?is)<(script|style|title)[^>]*>.*?</\1>", " ", text or "")
+    text = " ".join(htmllib.unescape(re.sub(r"<[^>]+>", " ", text)).split())
+    return text[:160]
 
 
 def website_variants(domain: str) -> list[str]:
@@ -47,10 +66,17 @@ class WikidataSource(Source):
 
     async def candidates(self, ctx: SourceContext) -> list[Candidate]:
         seed = ctx.seed.domain
+        hdr = {"Accept": "application/sparql-results+json", "User-Agent": user_agent(self.settings.contact)}
         r = await ctx.http.get(ENDPOINT, params={"query": build_query(seed), "format": "json"},
-                               headers={"Accept": "application/sparql-results+json"}, ttl=TTL, timeout=60, retries=2)
+                               headers=hdr, ttl=TTL, timeout=60, retries=2, cache_404=False)
         if not r.ok:
-            ctx.notes.append(f"wikidata: query failed (HTTP {r.status or r.error})")
+            why = f"HTTP {r.status}" if r.status else r.error
+            if r.status == 403:
+                hint = "" if self.settings.contact else "; Wikimedia may refuse clients without contact details: set DOMAINFINDER_CONTACT"
+                reason = refusal_reason(r.text)
+                ctx.notes.append(f"wikidata: refused ({why}{': ' + reason if reason else ''}){hint}")
+            else:
+                ctx.notes.append(f"wikidata: query failed ({why})")
             return []
         try:
             rows = r.json()["results"]["bindings"]
