@@ -21,9 +21,36 @@ TAG = re.compile(r"<[^>]+>")
 NOT_NAMES = re.compile(r"^(name|jurisdiction|state|country|subsidiar|percent|owned|organized|incorporat|\(?\d)", re.I)
 
 
+ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.I | re.S)
+TABLE = re.compile(r"<table[^>]*>(.*?)</table>", re.I | re.S)
+
+
+def _text(cell: str) -> str:
+    return " ".join(htmllib.unescape(TAG.sub(" ", cell)).split())
+
+
+def _name_column(rows: list[list[str]]) -> int:
+    """The leftmost column that is regularly filled in. Later columns hold the
+    jurisdiction or ownership; empty leading columns are layout spacers."""
+    width = max(len(r) for r in rows)
+    filled = [sum(1 for r in rows if i < len(r) and r[i]) for i in range(width)]
+    best = max(filled)
+    return next(i for i, n in enumerate(filled) if n >= best / 2)
+
+
 def subsidiary_names(doc: str) -> list[str]:
+    """Subsidiary names from an Exhibit 21: only each table's name column."""
     names: list[str] = []
-    cells = CELL.findall(doc) or doc.splitlines()
+    cells: list[str] = []
+    for table in TABLE.findall(doc) or ([doc] if ROW.search(doc) else []):
+        rows = [[_text(c) for c in CELL.findall(r)] for r in ROW.findall(table)]
+        rows = [r for r in rows if any(r)]
+        if not rows:
+            continue
+        col = _name_column(rows)
+        cells += [r[col] for r in rows if col < len(r) and r[col]]
+    if not cells:
+        cells = doc.splitlines()
     for raw in cells:
         text = " ".join(htmllib.unescape(TAG.sub(" ", raw)).split())
         if not (3 <= len(text) <= 90) or NOT_NAMES.match(text):

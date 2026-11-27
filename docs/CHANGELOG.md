@@ -3,6 +3,27 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.10 — 2026-11-27
+
+### Fixed
+- The root-check banner was printed twice at the bottom of the table when
+  writing a file (`-o`): once in the table and once on stderr. It now goes
+  to stderr only when it isn't already on screen (JSON output, or the table
+  redirected to a file or pipe).
+- Shared DNS infrastructure is now detected from reverse-NS data instead of
+  only from lists. A nameserver whose host serves 200+ domains is treated
+  as shared:
+  - its domains are not pulled in as candidates (the `oraclecloud.com` run
+    had merged 500 unrelated Akamai DNS customers);
+  - "nameservers under it" is no longer evidence;
+  - it can only match as a whole set.
+  The reverse lookup now queries one host per nameserver domain. This also
+  covers a seed that sells DNS hosting itself (Oracle's `oraclecloud.net`).
+- SEC EDGAR: subsidiary names are read only from each Exhibit 21 table's
+  name column (the leftmost regularly filled column). Jurisdiction cells
+  are no longer read as names, which produced guesses such as
+  `bermuda.com` and `delaware.com`.
+
 ## 0.9.9 — 2026-11-27
 
 ### Added

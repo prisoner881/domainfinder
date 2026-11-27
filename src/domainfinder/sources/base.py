@@ -37,6 +37,9 @@ class SourceContext:
     ct_org_domains: dict[str, CtOrgHit] = field(default_factory=dict)
     # Domain → subsidiary name from SEC Exhibit 21, read by the scorer.
     subsidiary_names: dict[str, str] = field(default_factory=dict)
+    # Nameserver domains a reverse-NS lookup showed serving very many domains:
+    # shared DNS infrastructure, whatever their name. Read by the scorer.
+    shared_ns_domains: set[str] = field(default_factory=set)
     notes: list[str] = field(default_factory=list)
 
     @property

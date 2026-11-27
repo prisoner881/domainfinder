@@ -270,3 +270,15 @@ def test_redirect_to_the_registrars_own_site_is_a_holding_signal():
     r3 = scorer().score(fp("adp.fr", rdap=rdap(registrar="CSC Corporate Domains, Inc.", iana="299", region=""),
                            web=web("http://adp.fr/", "https://www.parisaeroport.fr/")), cand("adp.fr"), set())
     assert "foreign_redirect" in kinds(r3)
+
+
+def test_shared_nameserver_domain_gives_no_namespace_or_dedicated_ns_evidence():
+    """oraclecloud.net runs a public DNS service: 'nameservers under oraclecloud.net' proves nothing."""
+    s = SeedProfile.build(seed_fp(), [ORG], ["adp"])
+    s.fp.ns = ["ns1.p201.dns.oraclecloud.net", "ns2.p201.dns.oraclecloud.net"]
+    cust = fp("customer.com", ns=["ns1.p201.dns.oraclecloud.net", "ns2.p201.dns.oraclecloud.net"])
+    plain = Scorer(s).score(cust, cand("customer.com"), {"oraclecloud.net"})
+    assert "namespace" in kinds(plain) or "ns_set" in kinds(plain)  # without the knowledge: a false link
+    aware = Scorer(s, shared_ns_domains={"oraclecloud.net"}).score(cust, cand("customer.com"), {"oraclecloud.net"})
+    assert not {"namespace", "ns_set"} & kinds(aware)
+    assert aware.classification is C.REJECTED

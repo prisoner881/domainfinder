@@ -208,3 +208,45 @@ async def test_all_tlds_falls_back_to_common_list():
     assert [c.domain for c in out] == ["adp.net"]
     assert any("IANA TLD list unavailable" in n for n in ctx.notes)
     await http.aclose()
+
+
+def test_pivot_hosts_takes_one_host_per_nameserver_domain():
+    ns = ["n2-a1.aka-ns.net", "n2-a11.aka-ns.net", "n2-a13.aka-ns.net",
+          "ns1.p201.dns.oraclecloud.net", "ns2.p201.dns.oraclecloud.net"]
+    hosts, how = pivot_hosts(ns, "oraclecloud.com")
+    assert how == "union" and hosts == ["n2-a1.aka-ns.net", "ns1.p201.dns.oraclecloud.net"]
+
+
+@respx.mock
+async def test_nameserver_serving_many_domains_is_shared_not_merged():
+    from domainfinder.http import Http
+    from domainfinder.models import Fingerprint
+
+    many = "\n".join(f"customer{i}.com" for i in range(250))
+    few = "corp.com\ncorp-sister.com"
+    respx.get("https://api.hackertarget.com/findshareddns/").mock(
+        side_effect=lambda req: httpx.Response(200, text=many if "provider" in req.url.params["q"] else few))
+    http = Http()
+    seed = Fingerprint(domain="corp.com", ns=["ns1.dnsprovider.net", "ns1.corp-dns.com"])
+    ctx = ctx_for(seed=seed, http=http)
+    out = await HackerTargetSource(Settings()).candidates(ctx)
+    assert [c.domain for c in out] == ["corp-sister.com"]  # the 250 provider customers are not candidates
+    assert ctx.shared_ns_domains == {"dnsprovider.net"}
+    assert any("treated as shared DNS infrastructure" in n for n in ctx.notes)
+    await http.aclose()
+
+
+def test_edgar_reads_only_the_name_column():
+    doc = """<table>
+    <tr><td>Name of Subsidiary</td><td>Jurisdiction</td></tr>
+    <tr><td>Oracle Systems Corporation</td><td>Delaware</td></tr>
+    <tr><td></td><td>Bermuda</td></tr>
+    <tr><td>Oracle Ireland Limited</td><td>Ireland</td></tr>
+    <tr><td><p>MySQL AB</p></td><td><p>Sweden</p></td></tr></table>"""
+    assert subsidiary_names(doc) == ["Oracle Systems Corporation", "Oracle Ireland Limited", "MySQL AB"]
+
+
+def test_edgar_skips_layout_spacer_columns():
+    doc = """<table><tr><td style="width:2%"></td><td>Oracle Systems Corporation</td><td>Delaware</td></tr>
+    <tr><td></td><td>Oracle Ireland Limited</td><td>Ireland</td></tr></table>"""
+    assert subsidiary_names(doc) == ["Oracle Systems Corporation", "Oracle Ireland Limited"]

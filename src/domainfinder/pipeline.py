@@ -231,7 +231,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     profile = SeedProfile.build(seed_fp, org_names, brand_labels)
     profile.ns_shared_override = ns_shared
     scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
-                    ctx.ct_org_domains, ctx.subsidiary_names)
+                    ctx.ct_org_domains, ctx.subsidiary_names, ctx.shared_ns_domains)
     results = score_all(scorer, items)
     verified_count = len(cands)
 

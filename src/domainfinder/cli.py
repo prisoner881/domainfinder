@@ -63,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def banner_to_stderr(json_output: bool, stdout_is_terminal: bool) -> bool:
+    """Copy the root-check banner to stderr only when the user can't already
+    see it: JSON output (no banner in it), or a table going to a file/pipe."""
+    return json_output or not stdout_is_terminal
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     # Announce name and version on every run (stderr keeps --json output clean).
@@ -196,8 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     from .report import root_panel
 
     banner = root_panel(rep, settings.idn)
-    if banner is not None and (args.json or args.output):
-        # The table already shows it; for JSON and files, put it on stderr too.
+    if banner is not None and banner_to_stderr(args.json, out.is_terminal):
         err.print(banner)
 
     if args.output:

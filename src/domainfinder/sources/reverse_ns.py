@@ -11,6 +11,9 @@ from .base import Source, SourceContext, make_candidates
 
 log = logging.getLogger(__name__)
 TTL = 7 * 86400
+# A nameserver host serving at least this many domains is shared DNS
+# infrastructure (a DNS provider, possibly the seed's own DNS service).
+SHARED_NS_COUNT = 200
 
 
 def pivot_hosts(ns: list[str], seed: str, limit: int = 3) -> tuple[list[str], str]:
@@ -23,7 +26,15 @@ def pivot_hosts(ns: list[str], seed: str, limit: int = 3) -> tuple[list[str], st
     data = load_data()
     own = [h for h in ns if not data.is_shared_dns(h) and not data.is_selectable_dns(h)]
     if own:
-        return own[:limit], "union"
+        # One host per nameserver domain: n2-a1.aka-ns.net and
+        # ns1.p201.dns.oraclecloud.net, not three hosts of the same pool.
+        picked, seen = [], set()
+        for h in own:
+            rd = registrable(h)
+            if rd not in seen:
+                seen.add(rd)
+                picked.append(h)
+        return picked[:limit], "union"
     sel = [h for h in ns if data.is_selectable_dns(h)]
     if len(sel) >= 2:
         return sel[:limit], "intersection"
@@ -66,7 +77,15 @@ class HackerTargetSource(Source):
             if not r.ok or body.lower().startswith(("error", "api count")) or "quota" in body.lower():
                 ctx.notes.append(f"hackertarget: {h}: {body[:80] or r.status}")
                 break
-            results.append({d for d in (registrable(x) for x in body.splitlines()) if d})
+            found = {d for d in (registrable(x) for x in body.splitlines()) if d}
+            if how == "union" and len(found) >= SHARED_NS_COUNT:
+                # Not the seed's own nameserver: a DNS service shared by many
+                # unrelated domains. Don't pull them in; tell the scorer.
+                ctx.shared_ns_domains.add(registrable(h) or h)
+                ctx.notes.append(f"hackertarget: {h} serves {len(found)}+ domains: treated as shared DNS "
+                                 f"infrastructure ({registrable(h)}), its domains not used as candidates")
+                continue
+            results.append(found)
         doms = combine(results, how)
         ctx.notes.append(f"hackertarget: {len(doms)} domains share NS ({how} of {len(results)} host(s))")
         return make_candidates(sorted(doms), self.name, ctx.seed.domain, f"shares NS ({how})")

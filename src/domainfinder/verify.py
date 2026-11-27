@@ -119,12 +119,14 @@ class Scorer:
         review_threshold: int = 40,
         ct_org_domains: dict[str, CtOrgHit] | None = None,
         subsidiary_names: dict[str, str] | None = None,
+        shared_ns_domains: set[str] | None = None,
     ):
         self.seed = seed
         self.high = high_threshold
         self.review = review_threshold
         self.ct = ct_org_domains or {}
         self.subs = subsidiary_names or {}
+        self.shared_ns_domains = set(shared_ns_domains or ())
         self.data = load_data()
         # public-key fingerprint → domain, for verified domains' certificates
         # (filled by score_all between rounds)
@@ -176,7 +178,8 @@ class Scorer:
                 add("foreign_redirect", N, f"redirects to unrelated {target}")
 
         # --- infrastructure in the seed's own namespace ---------------------
-        ns_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.ns) if r})
+        ns_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.ns)
+                          if r and r not in self.shared_ns_domains})
         mx_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.mx) if r})
         cn_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.www_cname) if r})
         bits = []
@@ -194,8 +197,11 @@ class Scorer:
         if seed_ns and cand_ns and not ns_ours:
             inter = seed_ns & cand_ns
             j = jaccard(seed_ns, cand_ns)
-            own = {h for h in inter if not data.is_shared_dns(h) and not data.is_selectable_dns(h)}
-            sel = {h for h in inter if data.is_selectable_dns(h)}
+            # Nameservers seen serving very many domains behave like a managed-DNS
+            # pool: only the whole set can match.
+            pooled = {h for h in inter if registrable(h) in self.shared_ns_domains}
+            own = {h for h in inter if not data.is_shared_dns(h) and not data.is_selectable_dns(h)} - pooled
+            sel = {h for h in inter if data.is_selectable_dns(h)} | pooled
             if self.seed.ns_shared_override:
                 if inter:
                     add("ns_shared", I, "NS set is used by very many domains (paid source); ignored", 0)
