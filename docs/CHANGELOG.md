@@ -5,6 +5,39 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.4.2 — 2026-11-27
+
+Fixes from test runs on four more organizations (a hardware maker, a
+financial-technology processor, a networking company and a European
+subsidiary of a business-information company).
+
+### Fixed
+- **A redirect plus the name reached the main list.** A domain registered
+  months ago at a consumer registrar behind a privacy service, redirecting
+  to the seed and named after one of its SEC subsidiaries, scored 72 and was
+  owned: redirect (60) plus name evidence. The brand in the name and an SEC
+  subsidiary name are chosen by whoever registers the domain, so they no
+  longer count as the independent link a redirect needs. Such domains stop
+  at needs review with a `redirect_only` note.
+- **Organization names whose first words spell the brand counted as another
+  organization.** "Informa D&B SA" for brand `informadb` was a conflict
+  (−20); it is now the brand-named entity (neutral, like "Example, Inc." for
+  `example`). Whole leading words only.
+- **Registrar RDAP failures were silent.** The registrar's RDAP, which often
+  carries the registrant contacts the registry lacks, is now retried twice,
+  and a `-v` note counts the domains per registrar it did not answer for.
+
+### Added
+- `registrar_brand` (weak, 5): the same brand-protection registrar as the
+  seed when the registrant region is not published. Corporate registrars
+  serve only their clients; with no region there is nothing to contradict
+  it. It is the independent link that keeps the seed's own redirecting
+  domains at its registrar on the main list.
+- `redirect-target` second-pass source: the domain an owned domain redirects
+  to becomes a candidate when not already known (in one run, an owned
+  domain redirected to the organization's new platform brand, which no
+  source had found).
+
 ## 1.4.1 — 2026-11-27
 
 Fixes from test runs on five organizations of different shapes (a payroll

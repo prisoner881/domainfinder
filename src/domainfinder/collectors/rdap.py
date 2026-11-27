@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import asyncio
 import ipaddress
 import logging
@@ -230,6 +231,7 @@ class RdapClient:
         self.http = http
         self.bootstrap = Bootstrap(http)
         self._nets: list[Netblock] = []
+        self.registrar_failures: Counter[str] = Counter()  # registrar RDAP host -> failed lookups
         self._ip_locks: dict[str, asyncio.Lock] = {}
 
     async def domain(self, domain: str) -> RdapInfo:
@@ -253,7 +255,9 @@ class RdapClient:
             return info
         # The registrar's RDAP often carries registrant fields the registry lacks.
         for href in related_links(data, r.url)[:1]:
-            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=1)
+            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2)
+            if not rr.ok:
+                self.registrar_failures[urlsplit(href).hostname or href] += 1
             if rr.ok:
                 try:
                     rel = rr.json()

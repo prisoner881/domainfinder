@@ -48,6 +48,7 @@ WEIGHTS = {
     "spf_shared": 20,
     "soa_rname": 25,
     "registrar_region": 10,
+    "registrar_brand": 5,
     "whois_email": 50,
     "whois_email_same": 25,
     "whois_phone": 25,
@@ -101,7 +102,7 @@ CHANNELS = {
     "website": ("redirect", "csp_trust", "csp_trust_brand", "csp_trust_one", "analytics",
                 "seed_link", "seed_link_brand"),
     "registration": ("rdap_org", "whois_org", "whois_email", "whois_email_same", "whois_phone", "whois_street",
-                     "registrar_region", "held_brand", "held", "held_brand_registrar", "brand_org"),
+                     "registrar_region", "registrar_brand", "held_brand", "held", "held_brand_registrar", "brand_org"),
     "name": ("brand_label", "subsidiary"),
 }
 CHANNEL_OF = {k: ch for ch, kinds in CHANNELS.items() for k in kinds}
@@ -450,6 +451,14 @@ class Scorer:
             else:
                 add("registrar_region", I, f"same registrar ({cr.registrar}) and region ({cr.region_key()}); mass-market registrar", 0)
 
+        held_infra = bool(set(fp.a) & self.data.holding_ips) or (
+            bool(fp.ns) and all(self.data.is_holding_ns(h) for h in fp.ns))
+        if (same_registrar and brand_registrar and not registrar_inferred and not (same_registrar and same_region)
+                and not (sr.region_key() and cr.region_key()) and not held_infra):
+            # Brand-protection registrars serve corporate clients only. With the
+            # registrant region unpublished there is nothing to contradict it.
+            add("registrar_brand", W, f"same brand-protection registrar ({cr.registrar}); registrant region not published")
+
         self._whois_contacts(fp, verified, add)
 
         # --- holding page (registered, unused) ---------------------------------------
@@ -626,8 +635,11 @@ class Scorer:
         """'ZDP, Inc.' / 'ZDP France' for brand 'zdp': likely the seed's own
         entity under its short name. Neither a match nor a conflict — 'Groupe ZDP'
         or 'Zone de Plaisance' do not start with the brand and stay conflicts."""
-        toks = normalize(org).split()
-        return bool(toks) and any(len(b) >= 3 and toks[0] == b for b in self.seed.brand_labels)
+        toks = normalize(org.replace("&", " ")).split()
+        # 'Informa D&B SA' → 'informa d b sa': brand 'informadb' is its first
+        # words run together. Whole words only, never part of one.
+        heads = {"".join(toks[:k]) for k in range(1, min(len(toks), 4) + 1)}
+        return bool(toks) and any(len(b) >= 3 and b in heads for b in self.seed.brand_labels)
 
     def _org_name_label(self, domain: str) -> str:
         """The domain is exactly the seed organization's name run together
@@ -680,7 +692,17 @@ class Scorer:
                 return max(min(score, self.high - 1), self.review), Classification.REVIEW, status
             return min(score, self.review - 1), Classification.REJECTED, status
 
-        control = any(e.kind in CONTROL_KINDS and e.points > 0 for e in ev)
+        control_kinds = {e.kind for e in ev if e.kind in CONTROL_KINDS and e.points > 0}
+        control = bool(control_kinds)
+        if control_kinds == {"redirect"} and not any(
+                e.points > 0 and channel_of(e.kind) not in ("website", "name", "corroboration") for e in ev):
+            # Anyone can register a name and redirect it to the seed (typosquats
+            # and domain investors do): a redirect proves control only together
+            # with evidence from another channel, never with the name alone.
+            if score >= self.high and strong:
+                ev.append(Evidence("redirect_only", Strength.INFO, 0,
+                                   "only a redirect and the name link it to the seed (anyone can redirect a domain)"))
+                return min(score, self.high - 1), Classification.REVIEW, status
         if score >= self.high and strong and control:
             return score, Classification.OWNED, status
         if strong and not control and score >= self.review:

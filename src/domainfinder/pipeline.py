@@ -13,7 +13,7 @@ from .collectors.rdap import RdapClient
 from .config import Settings
 from .dns import Resolver
 from .domains import label, registrable
-from .collectors.web import own_page
+from .collectors.web import chain_domains, own_page
 from .fingerprint import Collectors, fingerprint
 from .http import Http
 from .models import Candidate, Classification, Fingerprint, Result
@@ -281,7 +281,8 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     use_csp = settings.csp_discovery and pseudo_on("csp")
     if not settings.csp_discovery:
         disabled["csp"] = "turned off (--no-csp)"
-    for c in hop_candidates(results, known, seed, use_csp=use_csp, use_certs=pseudo_on("cert-san")):
+    for c in hop_candidates(results, known, seed, use_csp=use_csp, use_certs=pseudo_on("cert-san"),
+                            use_redirects=pseudo_on("redirect-target")):
         if c.domain in second:
             for k, v in c.sources.items():
                 second[c.domain].add_source(k, v)
@@ -294,7 +295,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         picked = new[:budget]
         ctx.notes.append("second pass: " + ", ".join(f"{n} from {k}" for k, n in sorted(by_src.items()))
                          + (f"; verifying {len(picked)} of {len(new)} (--max-candidates)" if len(picked) < len(new) else ""))
-        for k in ("csp", "cert-san"):
+        for k in ("csp", "cert-san", "redirect-target"):
             if by_src.get(k) and k not in used:
                 used.append(k)
         if picked:
@@ -307,6 +308,11 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     if ns_stats["checked"]:
         ctx.notes.append(f"dns: {ns_stats['checked']} nameserver set(s) only partly matching the seed's re-read from "
                          f"the domains' own nameservers; {ns_stats['changed']} changed")
+    failed = collectors.rdap.registrar_failures
+    if failed:
+        ctx.notes.append("rdap: the registrar's RDAP did not answer for " + ", ".join(
+            f"{n} domain(s) at {host}" for host, n in failed.most_common(5))
+            + "; registry data only for those (registrant contacts may be missing)")
     from .sources.crtsh_db import CURRENT
 
     db = CURRENT.get()
@@ -348,9 +354,10 @@ async def refresh_ns(fp: Fingerprint, resolver, stats: dict[str, int] | None = N
 
 
 def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp: bool = True,
-                   use_certs: bool = True) -> list[Candidate]:
+                   use_certs: bool = True, use_redirects: bool = True) -> list[Candidate]:
     """Candidates named in the CSP header (own page only) or on the TLS
-    certificate of owned and needs-review results."""
+    certificate of owned and needs-review results, and the redirect targets
+    of owned results."""
     from .collectors.tls import covers
     from .sources.base import make_candidates
 
@@ -375,6 +382,12 @@ def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp
         if r.classification not in (Classification.OWNED, Classification.REVIEW) or r.fingerprint is None:
             continue
         f = r.fingerprint
+        if use_redirects and r.classification is Classification.OWNED:
+            # Where an owned domain sends its visitors: often a new brand of the
+            # same organization. Verified like any other candidate.
+            later = [h for h in chain_domains(f.web) if h != r.domain]
+            if later:
+                add(make_candidates(later[-1:], "redirect-target", seed, f"{r.domain} redirects to it"))
         if use_csp and own_page(f.web, r.domain):  # a redirecting domain's CSP is its target's
             add(make_candidates(f.web.csp_domains, "csp", seed, f"named in the CSP of {r.domain}"))
         cert = f.cert
@@ -392,7 +405,7 @@ def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp
 
 def csp_candidates(results: list[Result], known: set[str], seed: str) -> list[Candidate]:
     """Candidates from the CSP headers of owned and needs-review results (one hop)."""
-    return hop_candidates(results, known, seed, use_csp=True, use_certs=False)
+    return hop_candidates(results, known, seed, use_csp=True, use_certs=False, use_redirects=False)
 
 
 def acquisition_names(results: list[Result], org_names: list[str], limit: int = 5) -> list[tuple[str, str]]:
