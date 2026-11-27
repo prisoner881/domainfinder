@@ -120,6 +120,8 @@ class Fingerprint:
     verification_tokens: list[str] = field(default_factory=list)
     soa_rname: str = ""
     soa_mname: str = ""
+    dmarc_addresses: list[str] = field(default_factory=list)  # rua/ruf report addresses
+    dmarc_auth: dict[str, str] = field(default_factory=dict)  # report host → specific | wildcard | none
     rdap: RdapInfo = field(default_factory=RdapInfo)
     cert: CertInfo = field(default_factory=CertInfo)
     web: WebInfo = field(default_factory=WebInfo)

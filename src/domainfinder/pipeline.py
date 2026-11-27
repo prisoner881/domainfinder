@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import logging
 from dataclasses import dataclass, field
 from typing import Callable
@@ -19,13 +20,13 @@ from .models import Candidate, Classification, Fingerprint, Result
 from .orgnames import is_meaningful, same_org
 from .rootcheck import RootCheck, check_root
 from .sources import ALL_SOURCES, Source, SourceContext
-from .sources.crtsh import seed_org_from_ct
+from .sources.crtsh import collect_org_hits, crtsh_json, seed_org_from_ct
 from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
 
 log = logging.getLogger(__name__)
 
 # When there are more candidates than --max-candidates, verify these first.
-SOURCE_PRIORITY = ["root-check", "manual", "import", "whoisxml", "crtsh-org", "seed-links", "cctld", "gtld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
+SOURCE_PRIORITY = ["root-check", "manual", "import", "whoisxml", "crtsh-org", "wikidata", "seed-links", "cctld", "gtld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
 
 
 @dataclass
@@ -232,30 +233,64 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     profile = SeedProfile.build(seed_fp, org_names, brand_labels)
     profile.ns_shared_override = ns_shared
     scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
-                    ctx.ct_org_domains, ctx.subsidiary_names, ctx.shared_ns_domains)
+                    ctx.ct_org_domains, ctx.subsidiary_names, ctx.shared_ns_domains, ctx.ct_cocerts)
     results = score_all(scorer, items)
     verified_count = len(cands)
 
-    # One hop out: domains named in the Content-Security-Policy of owned and
-    # needs-review domains become candidates, verified like any other.
-    use_csp = settings.csp_discovery and "csp" not in skip_sources and (not only_sources or "csp" in only_sources)
-    if use_csp:
-        new = csp_candidates(results, {c.domain for c in cands} | {seed}, seed)
-        budget = max(0, max_candidates - len(cands))
-        if new:
-            picked = new[:budget]
-            ctx.notes.append(f"csp: {len(new)} new candidate(s) named in the Content-Security-Policy of owned or "
-                             f"needs-review domains" + (f"; verifying {len(picked)} (--max-candidates)"
-                                                         if len(picked) < len(new) else ""))
-            if picked:
-                done, stage, stage_total = 0, "verifying CSP candidates", len(picked)
-                items += list(await asyncio.gather(*(fp_one(c) for c in picked)))
-                results = score_all(scorer, items)
-                total += len(new)
-                verified_count += len(picked)
-                used.append("csp")
-    elif not settings.csp_discovery:
+    # Second pass, one hop out, all verified like any other candidate:
+    #  * domains named in the CSP or on the TLS certificate of owned/review domains;
+    #  * domains with certificates in the name of an acquired company, a name
+    #    learned from an owned domain proven by two infrastructure matches.
+    def pseudo_on(name: str) -> bool:
+        return name not in skip_sources and (not only_sources or name in only_sources)
+
+    known = {c.domain for c in cands} | {seed}
+    second: dict[str, Candidate] = {}
+    if settings.acquisitions and pseudo_on("acq-ct"):
+        names = acquisition_names(results, org_names)
+        for name, origin in names:
+            hits: dict = {}
+            for extra in ({"exclude": "expired"}, {}):
+                rows = await crtsh_json(collectors.http, {"O": name, **extra}, settings.crtsh_timeout)
+                if rows:
+                    collect_org_hits(rows, [name], hits)
+            hits.pop(seed, None)
+            for dom, hit in hits.items():
+                hit.org = f"{hit.org} (acquired company; name from {origin})"
+                scorer.ct.setdefault(dom, hit)  # evidence in the seed's own name wins
+                if dom not in known and dom not in second:
+                    second[dom] = Candidate(domain=dom, sources={"acq-ct": f"certificate O={name} (name from {origin})"})
+            ctx.notes.append(f"acquisitions: CT search for {name!r} (named by owned {origin}): {len(hits)} domain(s)")
+        if names:
+            used.append("acq-ct")
+    elif not settings.acquisitions:
+        disabled["acq-ct"] = "turned off (DOMAINFINDER_ACQUISITIONS=0)"
+    use_csp = settings.csp_discovery and pseudo_on("csp")
+    if not settings.csp_discovery:
         disabled["csp"] = "turned off (--no-csp)"
+    for c in hop_candidates(results, known, seed, use_csp=use_csp, use_certs=pseudo_on("cert-san")):
+        if c.domain in second:
+            for k, v in c.sources.items():
+                second[c.domain].add_source(k, v)
+        else:
+            second[c.domain] = c
+    if second:
+        new = sorted(second.values(), key=lambda c: c.domain)
+        by_src = Counter(k for c in new for k in c.sources)
+        budget = max(0, max_candidates - len(cands))
+        picked = new[:budget]
+        ctx.notes.append("second pass: " + ", ".join(f"{n} from {k}" for k, n in sorted(by_src.items()))
+                         + (f"; verifying {len(picked)} of {len(new)} (--max-candidates)" if len(picked) < len(new) else ""))
+        for k in ("csp", "cert-san"):
+            if by_src.get(k) and k not in used:
+                used.append(k)
+        if picked:
+            done, stage, stage_total = 0, "verifying second-pass candidates", len(picked)
+            items += list(await asyncio.gather(*(fp_one(c) for c in picked)))
+            total += len(new)
+            verified_count += len(picked)
+    if second or scorer.ct:
+        results = score_all(scorer, items)
     return RunReport(
         seed=seed, seed_fingerprint=seed_fp, org_names=org_names, brand_labels=brand_labels,
         sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,
@@ -264,17 +299,76 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     )
 
 
-def csp_candidates(results: list[Result], known: set[str], seed: str) -> list[Candidate]:
-    """Candidates from the CSP headers of owned and needs-review results (one hop)."""
+def hop_candidates(results: list[Result], known: set[str], seed: str, *, use_csp: bool = True,
+                   use_certs: bool = True) -> list[Candidate]:
+    """Candidates named in the CSP header (own page only) or on the TLS
+    certificate of owned and needs-review results."""
+    from .collectors.tls import covers
     from .sources.base import make_candidates
 
     found: dict[str, Candidate] = {}
+    known = set(known) | {r.domain for r in results}
+
+    def add(cands: list[Candidate]):
+        for c in cands:
+            if c.domain in known:
+                continue
+            if c.domain in found:
+                for k, v in c.sources.items():
+                    found[c.domain].add_source(k, v)
+            else:
+                found[c.domain] = c
+
     for r in sorted(results, key=lambda r: (r.classification is not Classification.OWNED, r.domain)):
         if r.classification not in (Classification.OWNED, Classification.REVIEW) or r.fingerprint is None:
             continue
-        if not own_page(r.fingerprint.web, r.domain):
-            continue  # a redirecting domain's CSP is its target's
-        for c in make_candidates(r.fingerprint.web.csp_domains, "csp", seed, f"named in the CSP of {r.domain}"):
-            if c.domain not in known and c.domain not in found:
-                found[c.domain] = c
+        f = r.fingerprint
+        if use_csp and own_page(f.web, r.domain):  # a redirecting domain's CSP is its target's
+            add(make_candidates(f.web.csp_domains, "csp", seed, f"named in the CSP of {r.domain}"))
+        cert = f.cert
+        if (use_certs and cert.fetched and cert.has_scts
+                and (covers(cert.sans, r.domain) or covers(cert.sans, "www." + r.domain))):
+            regs = {registrable(x) for x in cert.sans} - {None}
+            if len(regs) <= 50:  # a CDN certificate shared by unrelated customers adds noise only
+                add(make_candidates(cert.sans, "cert-san", seed, f"on the TLS certificate of {r.domain}"))
     return list(found.values())
+
+
+def csp_candidates(results: list[Result], known: set[str], seed: str) -> list[Candidate]:
+    """Candidates from the CSP headers of owned and needs-review results (one hop)."""
+    return hop_candidates(results, known, seed, use_csp=True, use_certs=False)
+
+
+def acquisition_names(results: list[Result], org_names: list[str], limit: int = 5) -> list[tuple[str, str]]:
+    """(name, owned domain) for acquired companies: names on the certificate or
+    registration of owned domains proven by two or more infrastructure matches,
+    when they are not the seed's own names. Learned from evidence, not guessed."""
+    from .data import load as load_data
+    from .orgnames import any_match, normalize
+    from .verify import INFRA_KINDS
+
+    data = load_data()
+    out: list[tuple[str, str]] = []
+    ranked = sorted((r for r in results if r.classification is Classification.OWNED and r.fingerprint),
+                    key=lambda r: (-r.score, r.domain))
+    for r in ranked:
+        strong_infra = {e.kind for e in r.evidence if e.strength.value == "strong"} & INFRA_KINDS
+        if len(strong_infra) < 2:
+            continue
+        f = r.fingerprint
+        names = []
+        if f.cert.subject_org and f.cert.has_scts:
+            names.append(f.cert.subject_org)
+        if f.rdap.registrant_org and not data.is_proxy_registrant(f.rdap.registrant_org, f.rdap.registrar):
+            names.append(f.rdap.registrant_org)
+        for n in names:
+            norm = normalize(n)
+            if (not is_meaningful(n) or any_match(n, org_names) or data.is_shared_hosting_org(n)
+                    or data.is_brand_registrar(n) or (len(norm.split()) < 2 and len(norm) < 8)):
+                continue  # the seed's own name, a provider, or too short to search safely
+            if any(same_org(n, x) for x, _ in out):
+                continue
+            out.append((n, r.domain))
+            if len(out) >= limit:
+                return out
+    return out

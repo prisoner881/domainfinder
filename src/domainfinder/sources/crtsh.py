@@ -121,16 +121,29 @@ class CrtshDomainSource(Source):
     async def candidates(self, ctx: SourceContext) -> list[Candidate]:
         seed = ctx.seed.domain
         names: Counter[str] = Counter()
+        now = _now()
+        seen_certs: set = set()
         for q in (seed, f"%.{seed}"):
             rows = await crtsh_json(ctx.http, {"q": q, "exclude": "expired"}, self.settings.crtsh_timeout)
             if rows is None:
                 ctx.notes.append(f"crtsh-san: query {q!r} failed")
                 continue
             for row in rows:
-                for n in str(row.get("name_value") or "").split("\n"):
-                    rd = registrable(n)
-                    if rd and rd != seed:
+                regs = sorted({rd for rd in (registrable(n) for n in str(row.get("name_value") or "").split("\n")) if rd})
+                for rd in regs:
+                    if rd != seed:
                         names[rd] += 1
+                # Current certificates covering the seed and other domains: one
+                # party proved control of all of them to the CA (scorer evidence).
+                na = _parse_dt(str(row.get("not_after") or ""))
+                key = tuple(regs)
+                if seed in regs and len(regs) > 1 and na and na >= now and key not in seen_certs:
+                    seen_certs.add(key)
+                    for rd in regs:
+                        if rd != seed:
+                            lst = ctx.ct_cocerts.setdefault(rd, [])
+                            if len(lst) < 5:
+                                lst.append(list(regs))
         out = make_candidates(names.keys(), self.name, seed)
         for c in out:
             c.sources[self.name] = f"in SANs of {names[c.domain]} current cert(s) naming {seed}"

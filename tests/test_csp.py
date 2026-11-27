@@ -83,7 +83,7 @@ async def test_csp_hop_finds_and_verifies_the_named_domains(monkeypatch, tmp_pat
     assert by["jamfsoftware.com"].sources == {"csp": "named in the CSP of jamfcloud.com"}
     assert "csp_trust" in kinds(by["jamfcloud.com"]) and by["jamfcloud.com"].classification is C.REVIEW
     assert by["jamf.io"].classification is C.REJECTED  # discovered, but no evidence
-    assert "csp" in rep.sources_used and any(n.startswith("csp: ") for n in rep.notes)
+    assert "csp" in rep.sources_used and any(n.startswith("second pass: ") and "from csp" in n for n in rep.notes)
     assert rep.candidates_verified == len(by)
 
 

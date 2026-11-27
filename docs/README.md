@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.0.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.0.0`. `domainfinder --version` prints that line too.
+Current version: **1.1.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.1.0`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -155,7 +155,10 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 | `gtld` | ✓ | The brand label on ~35 common generic TLDs (`data/gtlds.txt`: `.net`, `.org`, `.info`, `.biz`, `.io`, `.ai`, `.app`, `.dev`, …), checked the same way. `--all-tlds` uses IANA's list of every TLD instead (about 1,400, fetched live and cached for a week). |
 | `seed-links` | ✓ | Domains linked from the seed's homepage, its CSP header and its live certificate. |
 | `csp` | ✓ | A second pass, one hop out: domains named in the Content-Security-Policy of owned and needs-review domains become candidates and are verified like any other. Turn it off with `--no-csp`. |
+| `cert-san` | ✓ | Same second pass: domains on the (publicly trusted) TLS certificate of owned and needs-review domains. |
+| `acq-ct` | ✓ | Same second pass: when an owned domain proven by two or more infrastructure matches carries another company's name on its certificate or registration (an acquisition), crt.sh is searched for certificates in that name too. Up to five names. Turn it off with `DOMAINFINDER_ACQUISITIONS=0`. |
 | `edgar` | ✓ | SEC EDGAR Exhibit 21 subsidiaries → `<name>.com` guesses. Needs `DOMAINFINDER_SEC_USER_AGENT` (SEC policy). |
+| `wikidata` | ✓ | Wikidata: finds the organization whose official website is exactly the seed, then its subsidiaries' official websites ("has subsidiary", "parent organization", "owned by"; one level). Turn it off with `DOMAINFINDER_WIKIDATA=0`. |
 | `hackertarget` | ✓ | Reverse NS (`findshareddns`). For managed-DNS pools it intersects several of the seed's NS hosts, which approximates "same NS set". Small daily quota; turn it off with `--no-hackertarget`. |
 | `viewdns` | free key | Reverse NS and reverse MX. Needs `VIEWDNS_API_KEY`. |
 | `securitytrails` | paid | Stub: reverse WHOIS / NS / MX, associated domains. |
@@ -176,6 +179,10 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | Same TXT verification token | strong | 50 |
 | Live TLS certificate `O=` matches the seed's organization | strong | 50 |
 | Live TLS certificate shared with the seed or a verified domain: it also covers one of them, the seed's certificate covers the candidate, it is the identical certificate, or it uses the same public key | strong | 55 |
+| A current certificate in CT logs covers both the candidate and the seed (same shared-certificate guard; not added twice when the live certificate already links) | strong | 50 |
+| DMARC reports go to the seed (or a verified domain) **and** that domain's DNS specifically authorizes them (`<domain>._report._dmarc.<host>`, not a wildcard) | strong | 50 |
+| Same customer-specific DMARC reporting address at a vendor as the seed | medium | 25 |
+| DMARC reports addressed to the seed without specific authorization (anyone can write the address) | weak | 10 |
 | RDAP registrant org matches | strong | 60 |
 | CT: a current certificate with `O=` the seed's org | strong | 45 |
 | CT: only expired certificates with that `O=` (divested? e.g. broadridge.com) | weak | 15 |

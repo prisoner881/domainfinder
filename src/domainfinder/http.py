@@ -27,6 +27,7 @@ HOST_LIMITS: dict[str, tuple[int, float]] = {
     "data.sec.gov": (2, 0.15),
     "www.sec.gov": (2, 0.15),
     "efts.sec.gov": (2, 0.15),
+    "query.wikidata.org": (1, 1.0),
     "dns.google": (8, 0.0),
     "cloudflare-dns.com": (8, 0.0),
 }

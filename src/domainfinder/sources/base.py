@@ -40,6 +40,9 @@ class SourceContext:
     # Nameserver domains a reverse-NS lookup showed serving very many domains:
     # shared DNS infrastructure, whatever their name. Read by the scorer.
     shared_ns_domains: set[str] = field(default_factory=set)
+    # Candidate → registrable-domain sets of current CT certificates that also
+    # cover the seed (filled by crtsh-san, read by the scorer).
+    ct_cocerts: dict[str, list[list[str]]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
     @property

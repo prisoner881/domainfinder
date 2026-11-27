@@ -134,6 +134,8 @@ async def collect_dns(fp: Fingerprint, resolver: Resolver) -> None:
         if len(bits) >= 2:
             fp.soa_mname, fp.soa_rname = bits[0], bits[1]
     fp.apex_resolves = bool(fp.a or fp.aaaa)
+    if fp.registered is not False:
+        await collect_dmarc(fp, resolver)
     # Apex has no A record: fall back to www for hosting evidence.
     if not fp.a and fp.registered is not False:
         wa = await resolver.query("www." + d, "A")
@@ -146,3 +148,45 @@ def rname_domain(rname: str) -> str | None:
         return None
     local, _, rest = rname.partition(".")
     return registrable(rest)
+
+
+# A name nobody would authorize specifically: if it resolves, the report host
+# authorizes every domain (a wildcard), which proves nothing.
+_DMARC_PROBE = "domainfinder-wildcard-probe"
+
+
+def parse_dmarc_addresses(record: str) -> list[str]:
+    """rua/ruf report addresses from a DMARC record, lower-cased, sizes stripped:
+    'v=DMARC1; p=reject; rua=mailto:a@x.com!10m,mailto:b@y.com' → [a@x.com, b@y.com]."""
+    out: list[str] = []
+    for part in record.split(";"):
+        key, _, value = part.strip().partition("=")
+        if key.strip().lower() not in ("rua", "ruf"):
+            continue
+        for uri in value.split(","):
+            uri = uri.strip()
+            if not uri.lower().startswith("mailto:"):
+                continue
+            addr = uri[7:].split("!", 1)[0].strip().lower()
+            if "@" in addr and addr not in out:
+                out.append(addr)
+    return out
+
+
+async def collect_dmarc(fp: Fingerprint, resolver: Resolver) -> None:
+    """DMARC report addresses, and whether each external report host authorizes
+    this domain (RFC 7489 §7.1: <domain>._report._dmarc.<report host>)."""
+    ans = await resolver.query("_dmarc." + fp.domain, "TXT")
+    record = next((t for t in ans.records if t.strip().lower().startswith("v=dmarc1")), "")
+    fp.dmarc_addresses = parse_dmarc_addresses(record)
+    hosts = sorted({a.split("@", 1)[1] for a in fp.dmarc_addresses})
+    for host in hosts:
+        if registrable(host) == fp.domain:
+            continue  # reports to itself need no authorization
+        specific = await resolver.query(f"{fp.domain}._report._dmarc.{host}", "TXT")
+        if not any(t.strip().lower().startswith("v=dmarc1") for t in specific.records):
+            fp.dmarc_auth[host] = "none"
+            continue
+        probe = await resolver.query(f"{_DMARC_PROBE}._report._dmarc.{host}", "TXT")
+        wildcard = any(t.strip().lower().startswith("v=dmarc1") for t in probe.records)
+        fp.dmarc_auth[host] = "wildcard" if wildcard else "specific"

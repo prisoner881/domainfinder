@@ -9,6 +9,7 @@ from .edgar import EdgarSource
 from .links import SeedLinkSource
 from .paid import DomainToolsSource, SecurityTrailsSource
 from .whoisxml import WhoisXmlSource
+from .wikidata import WikidataSource
 from .reverse_ns import HackerTargetSource, ViewDnsSource
 
 ALL_SOURCES: list[type[Source]] = [
@@ -18,6 +19,7 @@ ALL_SOURCES: list[type[Source]] = [
     GTldSource,
     SeedLinkSource,
     EdgarSource,
+    WikidataSource,
     HackerTargetSource,
     ViewDnsSource,
     SecurityTrailsSource,

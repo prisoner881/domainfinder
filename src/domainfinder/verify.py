@@ -31,6 +31,10 @@ WEIGHTS = {
     "token": 50,
     "cert_org": 50,
     "cert_link": 55,
+    "ct_cocert": 50,
+    "dmarc_auth": 50,
+    "dmarc_vendor": 25,
+    "dmarc_to_seed": 10,
     "rdap_org": 60,
     "ct_org_current": 45,
     "ct_org_historic": 15,
@@ -56,7 +60,8 @@ WEIGHTS = {
     "foreign_redirect": -10,
 }
 # Strong evidence that comes from shared *infrastructure* (vs. paperwork).
-INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link"}
+INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link",
+               "ct_cocert", "dmarc_auth"}
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -120,6 +125,7 @@ class Scorer:
         ct_org_domains: dict[str, CtOrgHit] | None = None,
         subsidiary_names: dict[str, str] | None = None,
         shared_ns_domains: set[str] | None = None,
+        ct_cocerts: dict[str, list[list[str]]] | None = None,
     ):
         self.seed = seed
         self.high = high_threshold
@@ -127,6 +133,7 @@ class Scorer:
         self.ct = ct_org_domains or {}
         self.subs = subsidiary_names or {}
         self.shared_ns_domains = set(shared_ns_domains or ())
+        self.ct_cocerts = ct_cocerts or {}
         self.data = load_data()
         # public-key fingerprint → domain, for verified domains' certificates
         # (filled by score_all between rounds)
@@ -277,6 +284,20 @@ class Scorer:
         link = self._cert_link(fp, verified)
         if link:
             add("cert_link", S, link)
+        else:
+            # The same proof from CT logs: a current certificate covering the
+            # candidate and the seed. Works without a live connection (holding
+            # pages, bot blocking, TLS interception).
+            for regs in self.ct_cocerts.get(d, []):
+                shared, _ = self._shared_cert(regs, {self.seed.fp.domain, d}, verified)
+                if not shared:
+                    add("ct_cocert", S, f"a current certificate in CT logs covers both {d} and {self.seed.fp.domain}")
+                    break
+
+        # --- DMARC report addresses ------------------------------------------------
+        dmarc = self._dmarc(fp, verified)
+        if dmarc:
+            add(*dmarc)
 
         # --- the candidate's own Content-Security-Policy ---------------------------
         # A site's CSP lists what its operator trusts. Trusting the seed and
@@ -384,6 +405,35 @@ class Scorer:
             if h.kind == "whois_org":  # an exact current registrant match is a registration match
                 flags["registration_match"] = True
         return ev, flags
+
+    def _dmarc(self, fp: Fingerprint, verified: set[str]):
+        """Best DMARC evidence: reports addressed to the seed (or a verified
+        domain) *and* specifically authorized in that domain's own DNS (strong:
+        only the seed's DNS owner can publish it); addressed there without
+        specific authorization (weak: anyone can write the address); or the
+        same customer-specific address at a DMARC vendor as the seed (medium)."""
+        import re
+
+        d = fp.domain
+        best = None
+        for addr in fp.dmarc_addresses:
+            host = addr.split("@", 1)[1]
+            rd = registrable(host)
+            if not rd or rd == d:
+                continue
+            if self._ours(rd, verified):
+                if fp.dmarc_auth.get(host) == "specific":
+                    return ("dmarc_auth", S, f"DMARC reports go to {addr}, and {rd} specifically authorizes them")
+                why = ("authorizes every domain (wildcard)" if fp.dmarc_auth.get(host) == "wildcard"
+                       else "does not authorize them")
+                best = best or ("dmarc_to_seed", W, f"DMARC reports addressed to {addr}, but {rd} {why}")
+            elif addr in self.seed.fp.dmarc_addresses:
+                local = addr.split("@", 1)[0]
+                # Only a customer-specific mailbox (a long token with digits)
+                # links two domains; "rua@vendor" is shared by every customer.
+                if re.search(r"(?=[a-z0-9]*\d)[a-z0-9]{8,}", local):
+                    best = ("dmarc_vendor", M, f"same DMARC reporting address as {self.seed.fp.domain}: {addr}")
+        return best
 
     def _shared_cert(self, sans: list[str], exclude: set[str], verified: set[str]) -> tuple[bool, list[str]]:
         """A certificate covering many unrelated registrable domains is a

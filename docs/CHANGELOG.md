@@ -2,6 +2,42 @@
 
 All notable changes to domainfinder.
 
+Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
+features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
+
+## 1.1.0 — 2026-11-27
+
+### Added
+- **Certificate links from CT logs.** A current certificate in crt.sh that
+  covers both a candidate and the seed is strong evidence: one party proved
+  control of both to the CA. It works where the live check can't (holding
+  pages without HTTPS, bot blocking, TLS interception), uses the same
+  shared-certificate guard, and is not added when the live certificate
+  already links the domain.
+- **DMARC reporting addresses.** Strong when a domain's reports go to the
+  seed (or a verified domain) *and* that domain's own DNS specifically
+  authorizes them (RFC 7489 external-destination record, wildcards
+  detected). Weak when merely addressed there, since anyone can write the
+  address. Medium for the same customer-specific address at a DMARC vendor;
+  generic vendor mailboxes don't count.
+- **Sister domains from certificates.** Names on the publicly trusted TLS
+  certificates of owned and needs-review domains join the second-pass
+  candidates (`cert-san`).
+- **Acquired companies' names, learned from evidence.** When an owned domain
+  proven by two or more infrastructure matches carries another company's
+  name on its certificate or registration, crt.sh is searched for that name
+  too (`acq-ct`, up to five names, exact matches). Certificates in that name
+  count like the seed's own CT evidence; everything found is still fully
+  verified. `DOMAINFINDER_ACQUISITIONS=0` turns it off.
+- **Wikidata subsidiaries.** The organization whose official website is
+  exactly the seed is looked up on Wikidata; its subsidiaries' official
+  websites become candidates (`wikidata`). `DOMAINFINDER_WIKIDATA=0` turns
+  it off.
+
+### Changed
+- The second pass (CSP, certificate names, acquisition names) reports what
+  it found in one `second pass:` note.
+
 ## 1.0.0 — 2026-11-27
 
 First stable release.
