@@ -7,27 +7,28 @@ features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
 ## 1.4.1 — 2026-11-27
 
-Fixes from test runs on adp.com, docusign.com, globalpayments.com, jamf.com
-and rmu.edu.
+Fixes from test runs on five organizations of different shapes (a payroll
+company, an e-signature company, a payments processor, a device-management
+software company and a university).
 
 ### Fixed
 - **Certificate hop pulled in a vendor's customers.** Two needs-review
-  domains on one vendor certificate (rmucolonials.com and rmuclubsports.com
-  on an athletics vendor's shared certificate) vouched for each other, and
+  domains on one vendor certificate (a university's two athletics sites on
+  an athletics vendor's shared certificate) vouched for each other, and
   the certificate's ~50 other college athletics domains were verified as
   candidates. Only the seed and owned domains now vouch for a certificate.
 - **Certificates in an "acquired" company's name counted like the seed's.**
   The name learned for the `acq-ct` search can be a joint-venture partner:
-  commerz-globalpay.com (Global Payments' joint venture) carries Commerzbank's
-  name, and Commerzbank's domains scored +45 strong. Such certificates are now
+  a payments processor's joint-venture domain carries its partner bank's
+  name, and the bank's own domains scored +45 strong. Such certificates are now
   their own evidence: `ct_org_acquired` (medium, 25) and
   `ct_org_acquired_historic` (weak, 5), not evidence of control.
 - **Held ccTLD domains redirecting to the seed stayed in needs review.**
   Registries such as .ae, .be, .ch and .co.nz publish no registration data,
   so the tool could not see the registrar. A domain parked on the holding
   infrastructure of the seed's own brand-protection registrar (MarkMonitor's
-  nameservers or holding address) now counts as at that registrar: 25
-  DocuSign ccTLDs redirecting to docusign.com become owned. Without a
+  nameservers or holding address) now counts as at that registrar: in one
+  test run, 25 ccTLD domains redirecting to the seed became owned. Without a
   redirect such a domain still needs review.
 
 ## 1.4.0 — 2026-11-27
@@ -56,8 +57,8 @@ and rmu.edu.
 - Registration-only results in needs review carry the `registration_only`
   note at any score, not only at 70 and above.
 
-### ADP check
-Replaying the evidence of the audited ADP run: the 363 domains with control
+### Check against an audited run
+Replaying the evidence of an audited run for a large company: the 363 domains with control
 evidence stay owned (only two score under 85), the 16 registration-only
 domains stay in needs review (now 65–69), and nothing else moves.
 
@@ -65,12 +66,12 @@ domains stay in needs review (now 65–69), and nothing else moves.
 
 ### Changed
 - **"High confidence" now requires evidence that the organization operates
-  the domain.** An audit of every ADP result scoring 70 or more found no
-  false positives among domains with control evidence (DNS on ADP's own
+  the domain.** An audit of every result scoring 70 or more for a large company found no
+  false positives among domains with control evidence (DNS on its own
   nameservers, mail tenant, netblock, certificate link, redirect, registrant
   match), but about 16–20 owned results rested on registration similarity
-  alone: parked at MarkMonitor with an NJ registrant and the brand in the
-  name or old certificates. Those are probably ADP's but unproven, and a
+  alone: parked at MarkMonitor in the seed's registrant region, with the brand in the
+  name or old certificates. Those are probably the company's but unproven, and a
   higher threshold would also have dropped certain ccTLD domains. Such
   results now stop at *needs review* (score capped at 69) with a
   `registration_only` evidence note. Control kinds are listed in
@@ -109,9 +110,8 @@ domains stay in needs review (now 65–69), and nothing else moves.
 ### Fixed
 - **Nameserver evidence no longer changes from run to run.** A resolver may
   answer an NS query with a registry's delegation, which for some ccTLDs
-  lists only part of the set: adp.lk, adplabs.com.br, adpservices.cl and
-  others matched ADP's ten nameservers on one run and five or six on the
-  next, and dropped to needs review. When a domain's set (or the seed's)
+  lists only part of the set: several ccTLD domains matched the seed's ten
+  nameservers on one run and five or six on the next, and dropped to needs review. When a domain's set (or the seed's)
   shares some but not all nameservers with the seed, the tool now asks one
   of the domain's own nameservers directly and uses its authoritative
   answer. The comparison itself is unchanged (a partial set still only
@@ -134,8 +134,8 @@ domains stay in needs review (now 65–69), and nothing else moves.
   `SET` and the query after it can land on different server connections;
   the limit is now `SET LOCAL` inside the query's own transaction.
 - **Database searches get their own time limit**, 300 seconds by default
-  (`DOMAINFINDER_CRTSH_DB_TIMEOUT`). ADP's full certificate history did not
-  finish in the web API's 120 seconds.
+  (`DOMAINFINDER_CRTSH_DB_TIMEOUT`). A large company's full certificate history did
+  not finish in the web API's 120 seconds.
 
 ## 1.2.1 — 2026-11-27
 
@@ -188,17 +188,17 @@ domains stay in needs review (now 65–69), and nothing else moves.
 
 ### Fixed
 - **A held domain named exactly after the organization counts like the
-  brand.** automaticdataprocessing.com (held at the seed's brand-protection
-  registrar, same registrant region) stayed in "needs review" because its
-  name doesn't contain the brand label "adp". The organization's name run
+  brand.** A domain spelling out the organization's full name (held at the seed's
+  brand-protection registrar, same registrant region) stayed in "needs
+  review" because its name doesn't contain the short brand label. The organization's name run
   together now counts, as an exact match only, never a partial one.
 
 ## 1.1.1 — 2026-11-27
 
 ### Fixed
 - **Vendor-hosted certificates no longer link unrelated domains.** When an
-  owned domain is hosted by a vendor (adpunemploymentclaims.com on an
-  Experian certificate), the vendor's other customers sharing that
+  owned domain is hosted by a vendor (a claims portal on its vendor's
+  certificate), the vendor's other customers sharing that
   certificate's public key reached "needs review". A public key now links
   domains only when its certificate is not a shared one (mostly other
   organizations' names) and the key is not served for many domains that are
@@ -206,7 +206,7 @@ domains stay in needs review (now 65–69), and nothing else moves.
   applies to a key shared with the seed.
 - **The certificate hop skips vendor certificates.** A certificate naming
   more than three other domains, none of them known to be ours, no longer
-  feeds `cert-san` candidates (it added two dozen Experian domains for ADP).
+  feeds `cert-san` candidates (it added two dozen of a vendor's customer domains in one run).
 - **EDGAR finds Exhibit 21 under any file name.** Names such as
   `exhibit21.htm` were missed ("latest 10-K has no Exhibit 21 file"); when
   no file name matches, the filing index is read for the document declared
@@ -276,16 +276,16 @@ First stable release.
 - Shared DNS infrastructure is now detected from reverse-NS data instead of
   only from lists. A nameserver whose host serves 200+ domains is treated
   as shared:
-  - its domains are not pulled in as candidates (the `oraclecloud.com` run
+  - its domains are not pulled in as candidates (one cloud provider's run
     had merged 500 unrelated Akamai DNS customers);
   - "nameservers under it" is no longer evidence;
   - it can only match as a whole set.
   The reverse lookup now queries one host per nameserver domain. This also
-  covers a seed that sells DNS hosting itself (Oracle's `oraclecloud.net`).
+  covers a seed that sells DNS hosting itself.
 - SEC EDGAR: subsidiary names are read only from each Exhibit 21 table's
   name column (the leftmost regularly filled column). Jurisdiction cells
-  are no longer read as names, which produced guesses such as
-  `bermuda.com` and `delaware.com`.
+  are no longer read as names, which turned jurisdictions such as
+  Bermuda or Delaware into domain guesses.
 
 ## 0.9.9 — 2026-11-27
 
@@ -356,13 +356,14 @@ First stable release.
 - A candidate's own Content-Security-Policy is now evidence. A CSP that
   trusts two or more domains that are the seed or already verified is
   strong; trusting only the seed is medium on a brand-named domain and weak
-  otherwise (customers sometimes whitelist a vendor's domains). Example:
-  `jamfcloud.com` trusts `jamf.com` and `jamfsoftware.com`.
+  otherwise (customers sometimes whitelist a vendor's domains). Example: a
+  company's cloud-service domain trusts its main and former domains.
 - CSP discovery, one hop out: domains named in the CSP of owned and
   needs-review domains become candidates, are verified like any other, and
   scoring runs again. It counts toward `--max-candidates`; `--no-csp` (or
-  `DOMAINFINDER_CSP=0`) turns it off. Example: `jamf.com` without `--org`
-  now finds `jamfsoftware.com` (owned) and `jamf.one` (needs review).
+  `DOMAINFINDER_CSP=0`) turns it off. Example: a software company's seed
+  without `--org` now finds its former domain (owned) and a brand ccTLD
+  (needs review).
 
 ## 0.9.4 — 2026-11-27
 
@@ -383,23 +384,22 @@ First stable release.
 
 ### Changed
 - All documentation now lives in `docs/`: `README.md` and this changelog
-  moved there, next to the `adp.com` sample run. `LICENSE` stays at the
+  moved there, next to a sample run (since removed). `LICENSE` stays at the
   repository root, where GitHub and Python packaging look for it.
 
 ### Fixed
 - Strong evidence of ownership plus another organization's name now always
   goes to *needs review* instead of being rejected when the conflict pulls
-  the score below the review threshold. Example: `springcm.com` has a current
-  certificate with O=DocuSign, while its live certificate still says
-  "SpringCM, Inc." (acquired by DocuSign in 2018).
+  the score below the review threshold. Example: an acquired company's domain
+  has a current certificate in the parent's name, while its live
+  certificate still names the acquired company.
 - A redirect to the registrar's own website (MarkMonitor parking a client
   domain by redirecting to `markmonitor.com`) is no longer penalized as an
   "unrelated" redirect. It is recognized from the registrar's name, not a
   list; at a brand-protection registrar it marks the domain held/inactive.
-  Example: `arx.com`.
 - Redaction placeholders in the registrant region or country ("REDACTED FOR
   PRIVACY") are treated as unknown instead of being shown and compared as a
-  region. Example: `docusign.tw`.
+  region.
 
 ## 0.9.2 — 2026-11-26
 
@@ -442,7 +442,7 @@ First numbered version. Everything below shipped together as 0.9.
 - A domain linked from the seed's homepage that also carries the brand goes to
   *needs review* instead of being rejected.
 - Internationalized domain names are written in readable form by default
-  (`adp.信息` rather than `adp.xn--vuq861b`); `--idn punycode` switches back.
+  (`example.信息` rather than `example.xn--vuq861b`); `--idn punycode` switches back.
   CSV and JSON always carry both forms in `domain_unicode` / `domain_ascii`.
   CSV is written with a UTF-8 byte-order mark so Excel shows it correctly.
 
@@ -450,8 +450,8 @@ First numbered version. Everything below shipped together as 0.9.
 - A registrant named after the registrar, a brand-protection registrar or a
   privacy service (CSC writes "CSC Corporate Domains, Inc." into the registrant
   fields it manages) is treated as a proxy: never the owner's name, never an
-  ownership match or conflict, and its region is ignored. Previously the
-  `globalpayments.com` run credited CSC's own domains to the seed.
+  ownership match or conflict, and its region is ignored. Previously one
+  test run credited CSC's own domains to the seed.
 - Managed web hosts (Pantheon, Acquia, Kinsta, …) no longer count as
   organization-owned netblocks.
 - crt.sh: when one URL form of a query fails (it intermittently answers large

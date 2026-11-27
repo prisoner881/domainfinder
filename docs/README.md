@@ -1,20 +1,20 @@
 # domainfinder
 
-Give it one root domain (`adp.com`). It returns a list of other domains run by the same company, each with a score and the evidence behind it.
+Give it one root domain (`example.com`). It returns a list of other domains run by the same company, each with a score and the evidence behind it.
 
 ```
-domainfinder adp.com
+domainfinder example.com
 ```
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.1.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.1.0`. `domainfinder --version` prints that line too.
+Current version: **1.4.1** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.4.1`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
-## Results for `adp.com`
+## Validation
 
-[adp-sample-run.md](adp-sample-run.md) compares a run made with an early 0.9 build against the handoff's acceptance list; later versions add sources and evidence, so current numbers differ somewhat. Free sources alone found 370 high-confidence domains, put 16 in needs review and rejected 105. Every expected-rejected domain was rejected (`adp.fr` = Aéroports de Paris, parked look-alikes, Broadridge's ex-ADP domains). The 33 expected-owned domains the free sources discovered were all classified owned.
+The scoring has been checked against runs for organizations of different shapes: a large payroll and HR services company with several hundred domains, an e-signature software company, a payments processor built from many acquisitions, a device-management software company on mostly shared infrastructure, and a US university. Every domain on the main lists was researched independently (registration records, DNS, certificates, public corporate records). No false positives were found among domains with evidence of control. Look-alikes were rejected: an unrelated organization sharing the seed's brand under a ccTLD, parked look-alikes, and domains a former business unit took with it when it was spun off.
 
 ## Install
 
@@ -35,15 +35,15 @@ deactivate                  # to leave the venv
 ## Usage
 
 ```
-domainfinder adp.com                         # table on stdout
-domainfinder adp.com -o results.csv          # also write CSV (add -v to include rejected rows)
-domainfinder adp.com -o results.json         # also write JSON (everything, with fingerprints)
-domainfinder adp.com --json                  # JSON on stdout
-domainfinder adp.com --min-score 80          # stricter main list
-domainfinder adp.com -v                      # also show rejected domains, sources and notes
-domainfinder adp.com --org "Automatic Data Processing, Inc."   # set the legal name yourself
-domainfinder adp.com --candidate elabor.com  # verify extra domains you already suspect
-domainfinder adp.com --import found.csv      # also verify domains found by other processes
+domainfinder example.com                         # table on stdout
+domainfinder example.com -o results.csv          # also write CSV (add -v to include rejected rows)
+domainfinder example.com -o results.json         # also write JSON (everything, with fingerprints)
+domainfinder example.com --json                  # JSON on stdout
+domainfinder example.com --min-score 80          # stricter main list
+domainfinder example.com -v                      # also show rejected domains, sources and notes
+domainfinder example.com --org "Example Corporation, Inc."   # set the legal name yourself
+domainfinder example.com --candidate example-labs.com  # verify extra domains you already suspect
+domainfinder example.com --import found.csv      # also verify domains found by other processes
 domainfinder --list-sources                  # which sources are on, and why others are off
 ```
 
@@ -96,19 +96,19 @@ list only on evidence.
 ```
 cat found.csv
 # from the asset inventory
-adpworld.de, workforcenow.com
-https://www.celergo.com/about
-domainfinder adp.com --import found.csv
+example-world.de, exampleproduct.com
+https://www.acquired-example.com/about
+domainfinder example.com --import found.csv
 ```
 
 ### Internationalized domain names
 
-Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`, Chinese for "information". DNS itself only carries ASCII, so on the wire the name is written as Punycode: `adp.xn--vuq861b`. Both strings are the same domain.
+Some domains use non-Latin scripts: `example.信息` is a domain under `.信息`, Chinese for "information". DNS itself only carries ASCII, so on the wire the name is written as Punycode: `example.xn--vuq861b`. Both strings are the same domain.
 
 * By default the output shows the readable form in the `domain` field, the table, statuses and evidence text. `--idn punycode` (or `DOMAINFINDER_IDN=punycode`) writes the ASCII form instead, for tools that only accept ASCII host names.
 * CSV and JSON always carry both forms in fixed columns, `domain_unicode` and `domain_ascii`, whatever `--idn` says. A downstream parser can rely on those instead of the `domain` field.
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
-* Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
+* Unicode input works too: `domainfinder example.信息` or `--candidate example.信息`.
 
 Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-crtsh-db`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
@@ -141,7 +141,7 @@ The same collector runs on the seed and on every candidate. It uses only passive
 * **IP → netblock** via RDAP (ARIN, RIPE, APNIC, LACNIC, AFRINIC): netblock name, handle, range and owner.
 * **Homepage**: one fetch, following redirects hop by hop to record the chain. It reads analytics and tag IDs (GA4, UA, GTM, Adobe Launch, Facebook pixel, Hotjar, OneTrust), outbound links and the CSP header.
 * **TLS certificate**: Subject `O=` and the SANs.
-* **Organization name**: taken from `--org`, the live certificate's `O=`, the `O=` of the seed's recent OV/EV certificates in CT logs (downloaded from crt.sh), a registrant org that isn't a privacy proxy, or a netblock owner whose name fits the brand (for example, the initials of "Automatic Data Processing" spell `adp`).
+* **Organization name**: taken from `--org`, the live certificate's `O=`, the `O=` of the seed's recent OV/EV certificates in CT logs (downloaded from crt.sh), a registrant org that isn't a privacy proxy, or a netblock owner whose name fits the brand (for example, the initials of "Example Data Processing" spell `edp`).
 
 DNS uses the system resolver. If the system resolver does not answer, it switches to DNS-over-HTTPS (dns.google, then Cloudflare).
 
@@ -199,7 +199,7 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | A WHOIS/RDAP contact email (registrant, admin, technical, billing) at the seed's or a verified domain | strong | 50 |
 | Same contact email (off the seed's domain), phone or street address as the seed's registrant/admin contacts | medium | 25 each |
 | CT: a current certificate with `O=` the seed's org | strong | 45 |
-| CT: only expired certificates with that `O=` (divested? e.g. broadridge.com) | weak | 15 |
+| CT: only expired certificates with that `O=` (divested? e.g. a spun-off business unit's domain) | weak | 15 |
 | CT: current / only expired certificates in an acquired company's name (`acq-ct`) | medium / weak | 25 / 5 |
 | The candidate's own Content-Security-Policy (from its own page) trusts two or more domains that are the seed or already verified | strong | 50 |
 | Its CSP trusts only the seed, and the name carries the brand / and it doesn't | medium / weak | 35 / 10 |
@@ -209,7 +209,7 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | Registrar holding page + same brand-protection registrar and registrant region + brand in name or past certificates in the seed's name | strong | 55 |
 | Holding page + same brand-protection registrar and region (no brand, no past certificates) / + brand but another region | medium | 40 / 35 |
 | Same registrar **and** registrant region (brand-protection registrars only) | weak | 10 |
-| Registrant or certificate org starting with the brand ("ADP, Inc.", "ADP France"): neither a match nor a conflict | weak | 10 |
+| Registrant or certificate org starting with the brand ("Example, Inc.", "Example France"): neither a match nor a conflict | weak | 10 |
 | Linked from the seed's homepage *and* carries the brand (athletics, campaign sites) | medium | 35 |
 | Brand label in the name; SEC subsidiary match; linked from the seed site | weak | 5–10 |
 | Parking or for-sale service (NS, redirect or page text) | negative | −50 |
@@ -236,16 +236,16 @@ Within a channel, the strongest item counts in full, the second at 50% and the r
 
 Guards that keep false positives out:
 
-* **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. Nameservers that aren't on either list are checked with reverse-NS data. One whose host serves 200 or more domains is treated as shared DNS infrastructure (a DNS provider, or a company's public DNS service such as Oracle's `oraclecloud.net`). Its domains aren't pulled in as candidates, "nameservers under it" doesn't count as evidence, and it can only match as a whole set. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
+* **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. Nameservers that aren't on either list are checked with reverse-NS data. One whose host serves 200 or more domains is treated as shared DNS infrastructure (a DNS provider, or a cloud provider's public DNS service). Its domains aren't pulled in as candidates, "nameservers under it" doesn't count as evidence, and it can only match as a whole set. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
 * **Certificate links only count when they prove control.** A certificate counts only if it carries Certificate Transparency timestamps. Publicly trusted certificates do; certificates minted by a TLS-intercepting proxy normally don't. It must also cover the name it was served for, because a server's default certificate shown for a name that someone else's DNS points at it proves nothing. A certificate covering more than three other registrable domains counts only when at least half of them are the seed's or verified, which excludes CDN and hosting certificates shared by unrelated customers.
 * **A redirect is counted once.** Analytics IDs and the CSP header only count when they come from the candidate's own page. After a redirect to the seed, the page is the seed's, and counting its tags would score the redirect twice. A typosquat that redirects to the real site would otherwise inherit the real site's evidence. A redirect alone (60) reaches *needs review*; one independent link (registrar and region, nameservers, mail tenant, certificate, registrant) puts it on the main list.
 * **Weak evidence is never enough.** The main list needs at least one strong item.
-* **Owned means operated, not just registered.** The main list also needs at least one item showing the organization *controls* the domain: its DNS, mail, network, a verification token, a certificate link or certificate in its name, a redirect into its sites, a registrant organization match, or a contact email at its domain (`verify.py → CONTROL_KINDS`). Registration similarity alone (same brand-protection registrar and region, holding page, brand in the name, past certificates, matching phone or street address) stops at *needs review* with a `registration_only` note, however high it adds up. In an audit of an ADP run, every owned domain with control evidence was confirmed; the parked, registration-only ones were probably ADP's but could not be proven.
+* **Owned means operated, not just registered.** The main list also needs at least one item showing the organization *controls* the domain: its DNS, mail, network, a verification token, a certificate link or certificate in its name, a redirect into its sites, a registrant organization match, or a contact email at its domain (`verify.py → CONTROL_KINDS`). Registration similarity alone (same brand-protection registrar and region, holding page, brand in the name, past certificates, matching phone or street address) stops at *needs review* with a `registration_only` note, however high it adds up. In an audit of a large company's run, every owned domain with control evidence was confirmed; the parked, registration-only ones were probably the company's but could not be proven.
 * **Contact data is used only where it is published.** Most gTLD contacts are redacted since 2018; placeholders ("REDACTED FOR PRIVACY", web-form URLs) are ignored. The registrar's, its abuse desk's and privacy-proxy contacts never count, technical contacts (often the registrar's or a DNS host's) are not compared with the seed's, and evidence text never prints an email address or phone number.
 * **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches (in different channels) agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
 * **Parked domains** go to *needs review* when their registration matches the seed's (a possible defensive registration), and are rejected otherwise.
 * **Holding pages.** Brand-protection registrars park unused client domains (MarkMonitor: `15.197.70.98`, `ns*.markmonitor.com`). Since 1.3.0 a held domain is owned only with control evidence (for example a contact email at the seed's domain or a current certificate in its name); when the registrar and registrant region match the seed's *and* the brand is in the name or CT logs show past certificates issued to the seed's organization, it scores just under the threshold (69) in *needs review*. A held domain with only the registrar and region in common goes to *needs review*, as does a brand-named one at the same registrar but in another region. Where the registry publishes no registration data (many ccTLDs), a domain parked on the holding infrastructure of the seed's own brand-protection registrar counts as at that registrar (`data/holding_pages.txt` names the registrar of each holding address and nameserver domain): with a redirect to the seed it is owned, without one it needs review.
-* **Second pass.** After the first round, scoring repeats with the newly verified domains, so "redirects to workmarket.com" counts once workmarket.com itself is verified.
+* **Second pass.** After the first round, scoring repeats with the newly verified domains, so "redirects to acquired-example.com" counts once acquired-example.com itself is verified.
 
 ## Adding paid keys
 
@@ -264,10 +264,10 @@ To add any other source, subclass `sources.base.Source` and list it in `sources/
 
 ### WhoisXML reverse WHOIS
 
-Sign up at whoisxmlapi.com (a free account includes 500 credits) and set `WHOISXML_API_KEY` in `.env`. The source then searches WHOIS for domains whose **registrant organization is exactly** one of the seed's organization names, plus small punctuation variants (`Inc.` / `Inc`, with or without the comma). Loose matches are not used: a generic name like "Global Payments" would pull in unrelated companies.
+Sign up at whoisxmlapi.com (a free account includes 500 credits) and set `WHOISXML_API_KEY` in `.env`. The source then searches WHOIS for domains whose **registrant organization is exactly** one of the seed's organization names, plus small punctuation variants (`Inc.` / `Inc`, with or without the comma). Loose matches are not used: a generic name like "Global Services" would pull in unrelated companies.
 
-* **Current WHOIS match**: strong evidence, the same as an RDAP registrant match. On its own it can put a domain on the main list. That matters for held domains whose only other link is the registrar, such as the MarkMonitor holding pages in the `adp.com` run.
-* **Historic-only match**: weak evidence. The domain was registered to the seed once, but may have been sold since (Broadridge's ex-ADP domains).
+* **Current WHOIS match**: strong evidence, the same as an RDAP registrant match. On its own it can put a domain on the main list. That matters for held domains whose only other link is the registrar, such as domains parked on MarkMonitor holding pages.
+* **Historic-only match**: weak evidence. The domain was registered to the seed once, but may have been sold since (domains a spun-off business unit took with it).
 * **Credits**: every search first runs a free *preview* (a count). The 1-credit *purchase* of the list (up to 10,000 domains) happens only when the count is above zero. Answers are cached for a week, so rerunning a seed costs nothing. The `-v` notes report what each search found and how many credits the run spent. By default, current and historic WHOIS are both searched, for up to two organization names × four variants. `--whoisxml-search current|historic` (or `DOMAINFINDER_WHOISXML_SEARCH`) limits that, and `DOMAINFINDER_WHOISXML_MAX_PAGES` (default 1) sets how many 10,000-domain pages a search may buy.
 * **Failures**: the key travels only in the request body; it is never put in a URL, the cache or a log, and is scrubbed from error messages. On an error (bad key, no credits left) the source stops and says why in the notes; the rest of the run carries on.
 
@@ -299,17 +299,17 @@ Each file has one entry per line, and `#` starts a comment.
 
 These two are deliberate. The main list is consumed automatically, so it uses only high-confidence technical evidence of control, never corporate records alone:
 
-* **Newly acquired companies appear only once their infrastructure links them.** A company the seed has just acquired usually keeps its own DNS, mail, certificates and registration for months or years. Until something technical connects it to the seed, its domains aren't found or don't qualify. Example: Global Payments completed its Worldpay acquisition in January 2026, and a November 2026 run lists no Worldpay domains. Acquisition filings (SEC 8-K, Exhibit 21, press releases) name legal entities, not domains. Mapping a name to a domain means guessing, and similarly named companies make that unreliable, so the tool doesn't try. As an acquired company moves onto the seed's infrastructure, its domains qualify through the normal evidence.
-* **Domains of divested businesses stay on the list while the seller still controls them.** After a sale, the seller often keeps a business's domains registered, served and certified in its own name, typically while it runs systems for the buyer during a transition. The tool reports who controls a domain, not who owns the business, so these domains stay owned until the registration, DNS and certificates move to the buyer. Example: Global Payments still controls domains of its divested payroll, Issuer Solutions and gaming businesses; heartlandplusone.com is registered to Global Payments and on its DNS, but already redirects to the buyer's auris.io.
+* **Newly acquired companies appear only once their infrastructure links them.** A company the seed has just acquired usually keeps its own DNS, mail, certificates and registration for months or years. Until something technical connects it to the seed, its domains aren't found or don't qualify. Example: a payments processor completed a large acquisition in January 2026, and a November 2026 run lists none of the acquired company's domains. Acquisition filings (SEC 8-K, Exhibit 21, press releases) name legal entities, not domains. Mapping a name to a domain means guessing, and similarly named companies make that unreliable, so the tool doesn't try. As an acquired company moves onto the seed's infrastructure, its domains qualify through the normal evidence.
+* **Domains of divested businesses stay on the list while the seller still controls them.** After a sale, the seller often keeps a business's domains registered, served and certified in its own name, typically while it runs systems for the buyer during a transition. The tool reports who controls a domain, not who owns the business, so these domains stay owned until the registration, DNS and certificates move to the buyer. Example: a payments processor still controls domains of three businesses it sold; one of them is registered to the seller and on its DNS, but already redirects to the buyer's new brand.
 
-* **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](adp-sample-run.md) shows which source would have found each miss.
+* **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some.
 * **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
-* **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
+* **Registrant data is usually redacted** to a region ("CA, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky.** Its web API answers large queries with 502s and caps a result set at 10,000 rows. The tool queries crt.sh's public database first (50,000 rows per search) and falls back to the web API; web queries are retried, everything is cached, and failures show up under `-v` notes. Networks that block outbound port 5432 get the web API only.
 * **Live TLS evidence needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's. The tool notices (no CT timestamps) and skips live-certificate comparisons, saying so in the notes. The CT-log evidence (`crtsh-org`) still works.
 * **Bot protection** on some sites answers the homepage fetch with 403. The redirect chain up to that point is still used.
 * **Sites behind shared hosting and bot protection.** University athletics and campaign sites often run on shared hosts behind a bot-blocking firewall, with privacy-protected registrations. The tool then sees no shared infrastructure; when the seed's homepage links to such a domain and the name carries the brand, it lands in *needs review*.
-* **"Operated by" is not "owned by."** A current certificate with the seed's `O=` can mean a site the seed hosts for a client (ADP runs benefits portals for its customers). Such domains usually land in *needs review*.
+* **"Operated by" is not "owned by."** A current certificate with the seed's `O=` can mean a site the seed hosts for a client (a payroll company running benefits portals for its customers). Such domains usually land in *needs review*.
 
 ## Development
 
