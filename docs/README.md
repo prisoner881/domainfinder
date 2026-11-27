@@ -8,13 +8,13 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.2** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.2` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.3** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.3` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Only free sources are used today. Paid providers (SecurityTrails, WhoisXML API, DomainTools) are built in as switched-off stubs. Each one turns on once its API key is configured.
 
 ## Results for `adp.com`
 
-[docs/adp-sample-run.md](docs/adp-sample-run.md) compares a run against the handoff's acceptance list. Free sources alone found 370 high-confidence domains, put 16 in needs review and rejected 105. Every expected-rejected domain was rejected (`adp.fr` = Aéroports de Paris, parked look-alikes, Broadridge's ex-ADP domains). The 33 expected-owned domains the free sources discovered were all classified owned.
+[adp-sample-run.md](adp-sample-run.md) compares a run against the handoff's acceptance list. Free sources alone found 370 high-confidence domains, put 16 in needs review and rejected 105. Every expected-rejected domain was rejected (`adp.fr` = Aéroports de Paris, parked look-alikes, Broadridge's ex-ADP domains). The 33 expected-owned domains the free sources discovered were all classified owned.
 
 ## Install
 
@@ -154,13 +154,13 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | Brand label in the name; SEC subsidiary match; linked from the seed site | weak | 5–10 |
 | Parking or for-sale service (NS, redirect or page text) | negative | −50 |
 | RDAP registrant / certificate names a different organization | negative | −40 / −20 |
-| Redirects to an unrelated domain | negative | −10 |
+| Redirects to an unrelated domain (a redirect to the registrar's own site counts as "held" instead) | negative | −10 |
 
 Guards that keep false positives out:
 
 * **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
 * **Weak evidence is never enough.** The main list needs at least one strong item.
-* **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches agree (acquisitions keep their old legal names).
+* **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
 * **Parked domains** go to *needs review* when their registration matches the seed's (a possible defensive registration), and are rejected otherwise.
 * **Holding pages.** Brand-protection registrars park unused client domains (MarkMonitor: `15.197.70.98`, `ns*.markmonitor.com`). Such a domain is classed as owned (`held/inactive`) only when the registrar and registrant region match the seed's *and* either the brand is in the name or CT logs show past certificates issued to the seed's organization. A held domain with only the registrar and region in common goes to *needs review*, as does a brand-named one at the same registrar but in another region.
 * **Second pass.** After the first round, scoring repeats with the newly verified domains, so "redirects to workmarket.com" counts once workmarket.com itself is verified.
@@ -205,7 +205,7 @@ Each file has one entry per line, and `#` starts a comment.
 
 ## Known limitations
 
-* **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](docs/adp-sample-run.md) shows which source would have found each miss.
+* **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](adp-sample-run.md) shows which source would have found each miss.
 * **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
 * **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky** (502s on large queries) and caps a result set at 10,000 rows. Queries are retried and cached; failures show up under `-v` notes.

@@ -3,6 +3,28 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.3 — 2026-11-27
+
+### Changed
+- All documentation now lives in `docs/`: `README.md` and this changelog
+  moved there, next to the `adp.com` sample run. `LICENSE` stays at the
+  repository root, where GitHub and Python packaging look for it.
+
+### Fixed
+- Strong evidence of ownership plus another organization's name now always
+  goes to *needs review* instead of being rejected when the conflict pulls
+  the score below the review threshold. Example: `springcm.com` has a current
+  certificate with O=DocuSign, while its live certificate still says
+  "SpringCM, Inc." (acquired by DocuSign in 2018).
+- A redirect to the registrar's own website (MarkMonitor parking a client
+  domain by redirecting to `markmonitor.com`) is no longer penalized as an
+  "unrelated" redirect. It is recognized from the registrar's name, not a
+  list; at a brand-protection registrar it marks the domain held/inactive.
+  Example: `arx.com`.
+- Redaction placeholders in the registrant region or country ("REDACTED FOR
+  PRIVACY") are treated as unknown instead of being shown and compared as a
+  region. Example: `docusign.tw`.
+
 ## 0.9.2 — 2026-11-26
 
 ### Added

@@ -235,3 +235,38 @@ def test_managed_web_host_netblock_is_not_ownership():
     s = SeedProfile.build(s.fp, [ORG], ["adp"])
     r = Scorer(s).score(fp("someotheruni.edu", a=["23.185.0.3"], netblocks=[pantheon]), cand("someotheruni.edu"), set())
     assert "netblock" not in kinds(r)
+
+
+def test_strong_evidence_with_a_conflicting_name_goes_to_review():
+    """springcm.com: current CT cert says DocuSign, the live cert says SpringCM."""
+    from domainfinder.models import CertInfo
+
+    ct = {"springcm.com": CtOrgHit(org=ORG, count=3, latest_not_after="2027-03-14", current=True)}
+    r = scorer(ct_org_domains=ct).score(
+        fp("springcm.com", rdap=rdap(), cert=CertInfo(fetched=True, subject_org="SpringCM, INC")),
+        cand("springcm.com"), set())
+    assert {"ct_org_current", "different_org_cert"} <= kinds(r)
+    assert r.classification is C.REVIEW and r.score >= 40
+    # Without any strong evidence, a conflicting name still means rejection.
+    r2 = scorer().score(fp("liveoak.net", rdap=rdap(org="Liveoak Technologies, Inc.", region="TX")),
+                        cand("liveoak.net"), set())
+    assert r2.classification is C.REJECTED
+
+
+def test_redirect_to_the_registrars_own_site_is_a_holding_signal():
+    """arx.com: parked by MarkMonitor, redirecting to markmonitor.com."""
+    r = scorer().score(
+        fp("arx.com", rdap=rdap(region="CA"), web=web("http://arx.com/", "https://www.markmonitor.com/")),
+        cand("arx.com"), set())
+    assert "foreign_redirect" not in kinds(r) and "registrar_redirect" in kinds(r)
+    assert r.status == "held/inactive"
+    # A mass-market registrar's own site: neutral, but not "held".
+    r2 = scorer().score(
+        fp("someone.com", rdap=rdap(registrar="GoDaddy.com, LLC", iana="146", region="AZ"),
+           web=web("http://someone.com/", "https://www.godaddy.com/forsale")),
+        cand("someone.com"), set())
+    assert "foreign_redirect" not in kinds(r2) and r2.status != "held/inactive"
+    # Any other unrelated site is still a foreign redirect.
+    r3 = scorer().score(fp("adp.fr", rdap=rdap(registrar="CSC Corporate Domains, Inc.", iana="299", region=""),
+                           web=web("http://adp.fr/", "https://www.parisaeroport.fr/")), cand("adp.fr"), set())
+    assert "foreign_redirect" in kinds(r3)

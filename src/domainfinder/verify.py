@@ -59,6 +59,21 @@ def jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
+def registrar_site(target: str, registrar: str) -> bool:
+    """Is `target` the registrar's own website? Derived from the registrar's
+    name, not a list: "Markmonitor Inc." → markmonitor.com, "GoDaddy.com, LLC"
+    → godaddy.com, "CSC Corporate Domains, Inc." → csc*.com."""
+    lab = label(target).lower()
+    # "GoDaddy.com" → "godaddy": a trailing ".com" is part of the brand, not a word.
+    toks = [t for t in normalize(registrar).split() if t not in ("com", "net", "org", "co", "io")]
+    if not lab or not toks:
+        return False
+    compact = "".join(toks)
+    first = toks[0]
+    return lab == compact or lab == first or (len(first) >= 3 and lab.startswith(first) and len(toks) > 1
+                                              and lab != first and len(lab) <= len(first) + 8)
+
+
 def initials(name: str) -> str:
     return "".join(t[0] for t in normalize(name).split() if t)
 
@@ -145,6 +160,11 @@ class Scorer:
             flags["redirect_target"] = target
             if any(data.is_parking_host(h) for h in later):
                 pass  # handled by the parking rule
+            elif registrar_site(target, fp.rdap.registrar):
+                # Registrars park unused client domains by redirecting them to
+                # their own site: a holding signal, not an unrelated company.
+                flags["registrar_redirect"] = target
+                add("registrar_redirect", I, f"redirects to its registrar's own site ({target}): registered, unused", 0)
             else:
                 add("foreign_redirect", N, f"redirects to unrelated {target}")
 
@@ -286,7 +306,7 @@ class Scorer:
         # --- holding page (registered, unused) ---------------------------------------
         held = bool(set(fp.a) & self.data.holding_ips) or (
             bool(fp.ns) and all(self.data.is_holding_ns(h) for h in fp.ns)
-        )
+        ) or bool(flags.get("registrar_redirect") and brand_registrar)
         brand = self._brand_in(d)
         if held:
             flags["held"] = True
@@ -369,7 +389,9 @@ class Scorer:
         if flags["different_org"] and len(infra) < 2:
             # Names another organization: never auto-accept without two
             # independent infrastructure matches (acquisitions keep old names).
-            if infra or (score >= self.review and strong):
+            if infra or strong:
+                # Strong evidence for the seed *and* another organization's
+                # name: a person should decide (acquisitions keep old names).
                 return max(min(score, self.high - 1), self.review), Classification.REVIEW, status
             return min(score, self.review - 1), Classification.REJECTED, status
 

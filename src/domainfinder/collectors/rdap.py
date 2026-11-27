@@ -73,6 +73,12 @@ def _roles(e: dict[str, Any]) -> list[str]:
     return [str(x).lower() for x in r] if isinstance(r, list) else []
 
 
+def _placeholder(value: str) -> bool:
+    from ..data import load as load_data
+
+    return load_data().is_privacy_proxy(value)
+
+
 def parse_domain(d: dict[str, Any], info: RdapInfo, source: str) -> None:
     info.available = True
     info.sources.append(source)
@@ -92,9 +98,11 @@ def parse_domain(d: dict[str, Any], info: RdapInfo, source: str) -> None:
                 info.registrant_org = org
             if v["fn"] and not info.registrant_name:
                 info.registrant_name = v["fn"]
-            if v["region"] and not info.registrant_region:
+            # Registries put placeholders like "REDACTED FOR PRIVACY" in these
+            # fields; a placeholder is an unknown region, not a region.
+            if v["region"] and not info.registrant_region and not _placeholder(v["region"]):
                 info.registrant_region = v["region"]
-            if v["country"] and not info.registrant_country:
+            if v["country"] and not info.registrant_country and not _placeholder(v["country"]):
                 info.registrant_country = v["country"]
     for ev in d.get("events") or []:
         if isinstance(ev, dict) and ev.get("eventAction") == "registration" and not info.created:

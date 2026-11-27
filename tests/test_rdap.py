@@ -79,3 +79,13 @@ async def test_client_reports_missing_rdap():
     info = await RdapClient(http).domain("adp.de")
     assert not info.available and "not found" in info.error
     await http.aclose()
+
+
+def test_redaction_placeholders_are_not_a_region():
+    d = {"entities": [{"roles": ["registrant"], "vcardArray": ["vcard", [
+        ["version", {}, "text", "4.0"], ["org", {}, "text", "DocuSign, Inc."],
+        ["adr", {"cc": "US"}, "text", ["", "", "", "", "REDACTED FOR PRIVACY", "", ""]]]]}]}
+    info = RdapInfo()
+    parse_domain(d, info, "test")
+    assert info.registrant_org == "DocuSign, Inc."
+    assert info.registrant_region == "" and info.region_key() == "US"
