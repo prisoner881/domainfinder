@@ -9,9 +9,9 @@ from domainfinder.config import Settings
 from domainfinder.http import Http
 from domainfinder.sources.base import SourceContext
 from domainfinder.sources.whoisxml import ENDPOINT, WhoisXmlSource, org_variants
-from helpers import ADP_NS, cand, fp, rdap, seed_fp
+from helpers import ZDP_NS, cand, fp, rdap, seed_fp
 
-ORG = "Automatic Data Processing, Inc."
+ORG = "Zyntara Data Processing, Inc."
 KEY = "at_SECRETKEY123"
 
 
@@ -23,7 +23,7 @@ class Collectors:
 
 def ctx_for(http, orgs=(ORG,)):
     return SourceContext(seed=seed_fp(), settings=Settings(), collectors=Collectors(http),
-                         org_names=list(orgs), brand_labels=["adp"])
+                         org_names=list(orgs), brand_labels=["zdp"])
 
 
 def fake_api(answers, calls):
@@ -42,10 +42,10 @@ def fake_api(answers, calls):
 
 
 def test_org_variants():
-    assert org_variants("Automatic Data Processing, Inc.") == [
-        "Automatic Data Processing, Inc.", "Automatic Data Processing, Inc",
-        "Automatic Data Processing Inc.", "Automatic Data Processing Inc"]
-    assert org_variants("Robert Morris University") == ["Robert Morris University"]
+    assert org_variants("Zyntara Data Processing, Inc.") == [
+        "Zyntara Data Processing, Inc.", "Zyntara Data Processing, Inc",
+        "Zyntara Data Processing Inc.", "Zyntara Data Processing Inc"]
+    assert org_variants("Elmridge University") == ["Elmridge University"]
 
 
 @respx.mock
@@ -54,18 +54,18 @@ async def test_preview_then_purchase_and_evidence(tmp_path):
     answers = {
         ("current", "preview", ORG): {"domainsCount": 2, "nextPageSearchAfter": None},
         ("current", "purchase", ORG): {"domainsCount": 2, "nextPageSearchAfter": None,
-                                       "domainsList": ["securtime.com", "adp.com"]},
+                                       "domainsList": ["timeguard.com", "zdp.com"]},
         ("historic", "preview", ORG): {"domainsCount": 2, "nextPageSearchAfter": None},
         ("historic", "purchase", ORG): {"domainsCount": 2, "nextPageSearchAfter": None,
-                                        "domainsList": [{"domainName": "securtime.com"}, {"domainName": "proxyvote.com"}]},
+                                        "domainsList": [{"domainName": "timeguard.com"}, {"domainName": "votenow.com"}]},
     }
     respx.post(ENDPOINT).mock(side_effect=fake_api(answers, calls))
     http = Http(cache=Cache(tmp_path / "c.sqlite", 3600))
     ctx = ctx_for(http)
     out = {c.domain: c for c in await WhoisXmlSource(Settings(whoisxml_key=KEY)).candidates(ctx)}
-    assert set(out) == {"securtime.com", "proxyvote.com"}  # the seed itself is dropped
-    assert out["securtime.com"].hints[0].kind == "whois_org"  # current wins over historic
-    assert out["proxyvote.com"].hints[0].kind == "whois_org_historic"
+    assert set(out) == {"timeguard.com", "votenow.com"}  # the seed itself is dropped
+    assert out["timeguard.com"].hints[0].kind == "whois_org"  # current wins over historic
+    assert out["votenow.com"].hints[0].kind == "whois_org_historic"
     purchases = [c for c in calls if c["mode"] == "purchase"]
     assert len(purchases) == 2
     assert all(c["advancedSearchTerms"][0]["exactMatch"] for c in calls)
@@ -126,20 +126,20 @@ async def test_more_than_one_page_is_reported_not_bought():
 
 
 def test_exact_current_registrant_match_puts_a_held_domain_on_the_main_list():
-    """securtime.com: MarkMonitor holding page, NJ, no other link — review before, owned with WhoisXML."""
+    """timeguard.com: MarkMonitor holding page, OH, no other link — review before, owned with WhoisXML."""
     from domainfinder.models import Classification as C
     from domainfinder.models import Evidence, Strength
     from domainfinder.verify import Scorer, SeedProfile
 
-    s = Scorer(SeedProfile.build(seed_fp(), [ORG], ["adp"]))
+    s = Scorer(SeedProfile.build(seed_fp(), [ORG], ["zdp"]))
     held = dict(a=["15.197.70.98"], ns=["ns1.markmonitor.com"], rdap=rdap())
-    before = s.score(fp("securtime.com", **held), cand("securtime.com"), set())
+    before = s.score(fp("timeguard.com", **held), cand("timeguard.com"), set())
     assert before.classification is C.REVIEW
-    c = cand("securtime.com", "whoisxml")
+    c = cand("timeguard.com", "whoisxml")
     c.hints = [Evidence("whois_org", Strength.STRONG, 60, "WhoisXML: registrant organization is 'X' (current WHOIS)")]
-    after = s.score(fp("securtime.com", **held), c, set())
+    after = s.score(fp("timeguard.com", **held), c, set())
     assert after.classification is C.OWNED
     # Historic-only: weak, stays in review.
-    c2 = cand("securtime.com", "whoisxml")
+    c2 = cand("timeguard.com", "whoisxml")
     c2.hints = [Evidence("whois_org_historic", Strength.WEAK, 15, "historic")]
-    assert s.score(fp("securtime.com", **held), c2, set()).classification is C.REVIEW
+    assert s.score(fp("timeguard.com", **held), c2, set()).classification is C.REVIEW

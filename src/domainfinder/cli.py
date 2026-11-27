@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="domainfinder",
         description=f"{BANNER}: {TAGLINE}",
     )
-    p.add_argument("domain", nargs="?", help="seed root domain, e.g. adp.com")
+    p.add_argument("domain", nargs="?", help="seed root domain, e.g. example.com")
     p.add_argument("-o", "--output", type=Path, help="also write results to this file (.csv or .json)")
     p.add_argument("--json", action="store_true", help="print JSON instead of a table")
     p.add_argument("--min-score", type=int, default=None, help="only list owned domains at or above this score")

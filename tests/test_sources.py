@@ -12,9 +12,9 @@ from domainfinder.sources.cctld import CcTldSource, permutations
 from domainfinder.sources.crtsh import CrtshOrgSource, collect_org_hits
 from domainfinder.sources.edgar import guesses, subsidiary_names
 from domainfinder.sources.reverse_ns import HackerTargetSource, combine, pivot_hosts
-from helpers import ADP_NS, seed_fp
+from helpers import ZDP_NS, seed_fp
 
-ORG = "Automatic Data Processing, Inc."
+ORG = "Zyntara Data Processing, Inc."
 
 
 class FakeResolver:
@@ -37,56 +37,56 @@ class FakeCollectors:
 
 def ctx_for(seed=None, http=None, resolver=None, **kw):
     return SourceContext(seed=seed or seed_fp(), settings=Settings(), collectors=FakeCollectors(http, resolver),
-                         org_names=[ORG], brand_labels=["adp"], **kw)
+                         org_names=[ORG], brand_labels=["zdp"], **kw)
 
 
 def test_make_candidates_drops_seed_and_common_third_parties():
-    cs = make_candidates(["www.adp.ca", "adp.com", "linkedin.com", "workmarket.com", "bad name"], "x", "adp.com")
-    assert sorted(c.domain for c in cs) == ["adp.ca", "workmarket.com"]
+    cs = make_candidates(["www.zdp.ca", "zdp.com", "linkedin.com", "taskhive.com", "bad name"], "x", "zdp.com")
+    assert sorted(c.domain for c in cs) == ["taskhive.com", "zdp.ca"]
 
 
 def test_crtsh_org_hits_filter_fuzzy_matches_and_track_currency():
     rows = [
-        {"common_name": "www.mastertax.com", "name_value": "Automatic Data Processing, Inc", "not_after": "2099-01-01T00:00:00"},
-        {"common_name": "proxyvote.com", "name_value": "Automatic Data Processing, Inc.", "not_after": "2006-01-01T00:00:00"},
-        {"common_name": "elsewhere.com", "name_value": "Automatic Data Systems Ltd", "not_after": "2099-01-01T00:00:00"},
+        {"common_name": "www.taxdesk.com", "name_value": "Zyntara Data Processing, Inc", "not_after": "2099-01-01T00:00:00"},
+        {"common_name": "votenow.com", "name_value": "Zyntara Data Processing, Inc.", "not_after": "2006-01-01T00:00:00"},
+        {"common_name": "elsewhere.com", "name_value": "Zyntara Data Systems Ltd", "not_after": "2099-01-01T00:00:00"},
     ]
     hits = {}
     collect_org_hits(rows, [ORG], hits)
-    assert set(hits) == {"mastertax.com", "proxyvote.com"}
-    assert hits["mastertax.com"].current and not hits["proxyvote.com"].current
+    assert set(hits) == {"taxdesk.com", "votenow.com"}
+    assert hits["taxdesk.com"].current and not hits["votenow.com"].current
 
 
 @respx.mock
 async def test_crtsh_org_source_queries_and_records_hits():
     from domainfinder.http import Http
 
-    rows = [{"common_name": "workscape.com", "name_value": ORG, "not_after": "2099-01-01T00:00:00"},
-            {"common_name": "adp.com", "name_value": ORG, "not_after": "2099-01-01T00:00:00"}]
+    rows = [{"common_name": "perkscape.com", "name_value": ORG, "not_after": "2099-01-01T00:00:00"},
+            {"common_name": "zdp.com", "name_value": ORG, "not_after": "2099-01-01T00:00:00"}]
     route = respx.get("https://crt.sh/").respond(text=json.dumps(rows))
     http = Http()
     ctx = ctx_for(http=http)
     out = await CrtshOrgSource(Settings()).candidates(ctx)
-    assert [c.domain for c in out] == ["workscape.com"]
-    assert ctx.ct_org_domains["workscape.com"].current
+    assert [c.domain for c in out] == ["perkscape.com"]
+    assert ctx.ct_org_domains["perkscape.com"].current
     assert route.calls[0].request.url.params["O"] == ORG
     await http.aclose()
 
 
 def test_cctld_permutations_skip_the_seed():
-    p = permutations(["adp"], "adp.com", ["com", "fr", "co.uk"])
-    assert p == ["adp.fr", "adp.co.uk"]
+    p = permutations(["zdp"], "zdp.com", ["com", "fr", "co.uk"])
+    assert p == ["zdp.fr", "zdp.co.uk"]
 
 
 async def test_cctld_source_keeps_registered_only():
-    res = FakeResolver({"adp.ca", "adp.fr"})
+    res = FakeResolver({"zdp.ca", "zdp.fr"})
     ctx = ctx_for(resolver=res)
     out = await CcTldSource(Settings()).candidates(ctx)
-    assert [c.domain for c in out] == ["adp.ca", "adp.fr"]
+    assert [c.domain for c in out] == ["zdp.ca", "zdp.fr"]
 
 
 def test_reverse_ns_pivots():
-    hosts, how = pivot_hosts(sorted(ADP_NS), "adp.com")
+    hosts, how = pivot_hosts(sorted(ZDP_NS), "zdp.com")
     assert how == "intersection" and len(hosts) == 3
     hosts, how = pivot_hosts(["ns1.example-corp.com", "ns2.example-corp.com"], "example-corp.com")
     assert how == "union"
@@ -99,29 +99,29 @@ def test_reverse_ns_pivots():
 async def test_hackertarget_intersects_and_stops_on_quota():
     from domainfinder.http import Http
 
-    answers = iter(["adp.com\nworkforcenow.com\nother.com", "workforcenow.com\nadp.com", "API count exceeded"])
+    answers = iter(["zdp.com\nstaffnow.com\nother.com", "staffnow.com\nzdp.com", "API count exceeded"])
     respx.get("https://api.hackertarget.com/findshareddns/").mock(
         side_effect=lambda req: httpx.Response(200, text=next(answers)))
     http = Http()
     ctx = ctx_for(http=http)
     out = await HackerTargetSource(Settings()).candidates(ctx)
-    assert [c.domain for c in out] == ["workforcenow.com"]
+    assert [c.domain for c in out] == ["staffnow.com"]
     assert any("API count" in n for n in ctx.notes)
     await http.aclose()
 
 
 def test_edgar_exhibit21_parsing():
     doc = """<table><tr><td>Name</td><td>Jurisdiction</td></tr>
-    <tr><td>ADP Canada Co.</td><td>Canada</td></tr>
-    <tr><td>Workforce Software, LLC</td><td>Delaware</td></tr>
-    <tr><td>Automatic Data Processing Insurance Agency of the Pacific Northwest, Inc.</td><td>WA</td></tr>
+    <tr><td>ZDP Canada Co.</td><td>Canada</td></tr>
+    <tr><td>Shiftlane Software, LLC</td><td>Delaware</td></tr>
+    <tr><td>Zyntara Data Processing Insurance Agency of the Pacific Northwest, Inc.</td><td>WA</td></tr>
     <tr><td>100%</td><td></td></tr></table>"""
     names = subsidiary_names(doc)
-    assert "ADP Canada Co." in names and "Workforce Software, LLC" in names
+    assert "ZDP Canada Co." in names and "Shiftlane Software, LLC" in names
     assert "100%" not in names and "Name" not in names
-    assert guesses("Workforce Software, LLC") == ["workforcesoftware.com"]
-    assert guesses("ADP Canada Co.") == ["adpcanada.com"]
-    assert guesses("Automatic Data Processing Insurance Agency of the Pacific Northwest, Inc.") == []
+    assert guesses("Shiftlane Software, LLC") == ["shiftlanesoftware.com"]
+    assert guesses("ZDP Canada Co.") == ["zdpcanada.com"]
+    assert guesses("Zyntara Data Processing Insurance Agency of the Pacific Northwest, Inc.") == []
 
 
 def test_paid_sources_are_off_without_keys_and_on_with_them():
@@ -147,9 +147,9 @@ async def test_crtsh_falls_back_to_other_url_forms_and_never_caches_404(tmp_path
     legacy = respx.get("https://crt.sh/").respond(404, text="<html>Not Found</html>")
     new = respx.get("https://crt.sh/json").respond(json=[{"id": 7}])
     http = Http(cache=Cache(tmp_path / "c.sqlite", 3600))
-    assert await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30) == [{"id": 7}]
+    assert await crtsh_json(http, {"q": "zdp.com", "exclude": "expired"}, 30) == [{"id": 7}]
     # The 404 was not cached: a second call asks the legacy form again.
-    await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30)
+    await crtsh_json(http, {"q": "zdp.com", "exclude": "expired"}, 30)
     assert legacy.call_count == 2 and new.call_count == 1  # the success *was* cached
     await http.aclose()
 
@@ -161,21 +161,21 @@ async def test_crtsh_gives_up_cleanly_when_every_form_fails():
 
     respx.get(url__regex=r"https://crt\.sh/.*").respond(404, text="<html>Not Found</html>")
     http = Http()
-    assert await crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30) is None
+    assert await crtsh_json(http, {"q": "zdp.com", "exclude": "expired"}, 30) is None
     await http.aclose()
 
 
 async def test_gtld_source_checks_common_generic_tlds():
     from domainfinder.sources.cctld import GTldSource
 
-    res = FakeResolver({"adp.net", "adp.org", "adp.io", "adp.ca"})
+    res = FakeResolver({"zdp.net", "zdp.org", "zdp.io", "zdp.ca"})
     ctx = ctx_for(resolver=res)
     out = await GTldSource(Settings()).candidates(ctx)
-    assert [c.domain for c in out] == ["adp.io", "adp.net", "adp.org"]
+    assert [c.domain for c in out] == ["zdp.io", "zdp.net", "zdp.org"]
     asked = {n for n, _ in res.asked}
-    assert {"adp.info", "adp.biz", "adp.dev"} <= asked
-    assert "adp.com" not in asked  # the seed itself
-    assert "adp.ca" not in asked  # ccTLDs are the cctld source's job
+    assert {"zdp.info", "zdp.biz", "zdp.dev"} <= asked
+    assert "zdp.com" not in asked  # the seed itself
+    assert "zdp.ca" not in asked  # ccTLDs are the cctld source's job
     assert out[0].sources == {"gtld": "brand label .io"}
 
 
@@ -187,11 +187,11 @@ async def test_all_tlds_uses_ianas_list():
     respx.get("https://data.iana.org/TLD/tlds-alpha-by-domain.txt").respond(
         text="# Version 2026112600\nCOM\nDE\nPHOTOGRAPHY\nXN--VUQ861B\n")
     http = Http()
-    res = FakeResolver({"adp.photography", "adp.xn--vuq861b"})
+    res = FakeResolver({"zdp.photography", "zdp.xn--vuq861b"})
     ctx = ctx_for(http=http, resolver=res)
     out = await GTldSource(Settings(all_tlds=True)).candidates(ctx)
-    assert [c.domain for c in out] == ["adp.photography", "adp.xn--vuq861b"]
-    assert {n for n, _ in res.asked} == {"adp.photography", "adp.xn--vuq861b"}  # .de: cctld's; .com: seed
+    assert [c.domain for c in out] == ["zdp.photography", "zdp.xn--vuq861b"]
+    assert {n for n, _ in res.asked} == {"zdp.photography", "zdp.xn--vuq861b"}  # .de: cctld's; .com: seed
     await http.aclose()
 
 
@@ -202,10 +202,10 @@ async def test_all_tlds_falls_back_to_common_list():
 
     respx.get("https://data.iana.org/TLD/tlds-alpha-by-domain.txt").respond(503)
     http = Http(retries=0)
-    res = FakeResolver({"adp.net"})
+    res = FakeResolver({"zdp.net"})
     ctx = ctx_for(http=http, resolver=res)
     out = await GTldSource(Settings(all_tlds=True)).candidates(ctx)
-    assert [c.domain for c in out] == ["adp.net"]
+    assert [c.domain for c in out] == ["zdp.net"]
     assert any("IANA TLD list unavailable" in n for n in ctx.notes)
     await http.aclose()
 
@@ -213,7 +213,7 @@ async def test_all_tlds_falls_back_to_common_list():
 def test_pivot_hosts_takes_one_host_per_nameserver_domain():
     ns = ["n2-a1.aka-ns.net", "n2-a11.aka-ns.net", "n2-a13.aka-ns.net",
           "ns1.p201.dns.oraclecloud.net", "ns2.p201.dns.oraclecloud.net"]
-    hosts, how = pivot_hosts(ns, "oraclecloud.com")
+    hosts, how = pivot_hosts(ns, "examplecloud.com")
     assert how == "union" and hosts == ["n2-a1.aka-ns.net", "ns1.p201.dns.oraclecloud.net"]
 
 
@@ -239,14 +239,14 @@ async def test_nameserver_serving_many_domains_is_shared_not_merged():
 def test_edgar_reads_only_the_name_column():
     doc = """<table>
     <tr><td>Name of Subsidiary</td><td>Jurisdiction</td></tr>
-    <tr><td>Oracle Systems Corporation</td><td>Delaware</td></tr>
+    <tr><td>Northwind Systems Corporation</td><td>Delaware</td></tr>
     <tr><td></td><td>Bermuda</td></tr>
-    <tr><td>Oracle Ireland Limited</td><td>Ireland</td></tr>
-    <tr><td><p>MySQL AB</p></td><td><p>Sweden</p></td></tr></table>"""
-    assert subsidiary_names(doc) == ["Oracle Systems Corporation", "Oracle Ireland Limited", "MySQL AB"]
+    <tr><td>Northwind Ireland Limited</td><td>Ireland</td></tr>
+    <tr><td><p>Tablebase AB</p></td><td><p>Sweden</p></td></tr></table>"""
+    assert subsidiary_names(doc) == ["Northwind Systems Corporation", "Northwind Ireland Limited", "Tablebase AB"]
 
 
 def test_edgar_skips_layout_spacer_columns():
-    doc = """<table><tr><td style="width:2%"></td><td>Oracle Systems Corporation</td><td>Delaware</td></tr>
-    <tr><td></td><td>Oracle Ireland Limited</td><td>Ireland</td></tr></table>"""
-    assert subsidiary_names(doc) == ["Oracle Systems Corporation", "Oracle Ireland Limited"]
+    doc = """<table><tr><td style="width:2%"></td><td>Northwind Systems Corporation</td><td>Delaware</td></tr>
+    <tr><td></td><td>Northwind Ireland Limited</td><td>Ireland</td></tr></table>"""
+    assert subsidiary_names(doc) == ["Northwind Systems Corporation", "Northwind Ireland Limited"]

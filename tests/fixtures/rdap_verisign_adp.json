@@ -1,9 +1,0 @@
-{"objectClassName":"domain","handle":"1047788_DOMAIN_COM-VRSN","ldhName":"ADP.COM",
- "links":[{"value":"https://rdap.verisign.com/com/v1/domain/adp.com","rel":"self","href":"https://rdap.verisign.com/com/v1/domain/adp.com","type":"application/rdap+json"},
-          {"value":"https://rdap.verisign.com/com/v1/domain/adp.com","rel":"related","href":"https://rdap.markmonitor.com/rdap/domain/ADP.COM","type":"application/rdap+json"}],
- "status":["client delete prohibited","client transfer prohibited","client update prohibited"],
- "entities":[{"objectClassName":"entity","handle":"292","roles":["registrar"],
-   "publicIds":[{"type":"IANA Registrar ID","identifier":"292"}],
-   "vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","MarkMonitor Inc."]]]}],
- "events":[{"eventAction":"registration","eventDate":"1991-06-24T04:00:00Z"}],
- "nameservers":[{"objectClassName":"nameserver","ldhName":"A1-199.AKAM.NET"},{"objectClassName":"nameserver","ldhName":"DNS1.P01.NSONE.NET"}]}

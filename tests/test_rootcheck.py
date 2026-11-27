@@ -11,27 +11,27 @@ from domainfinder.rootcheck import check_root
 
 
 def test_redirect_to_another_domain_means_wrong_root():
-    f = fp("adpcorp.com", web=web("http://adpcorp.com/", "https://www.adp.com/"))
-    rc = check_root("adpcorp.com", f)
-    assert rc.status == "wrong" and rc.suggested == "adp.com"
-    assert "redirects to adp.com" in rc.reasons[0]
+    f = fp("zdpcorp.com", web=web("http://zdpcorp.com/", "https://www.zdp.com/"))
+    rc = check_root("zdpcorp.com", f)
+    assert rc.status == "wrong" and rc.suggested == "zdp.com"
+    assert "redirects to zdp.com" in rc.reasons[0]
     assert "same brand in both names" in rc.corroboration
-    assert "LOOKS WRONG" in rc.headline() and "Suggested real root: adp.com" in rc.headline()
+    assert "LOOKS WRONG" in rc.headline() and "Suggested real root: zdp.com" in rc.headline()
 
 
 def test_redirect_within_the_same_domain_is_fine():
-    rc = check_root("adp.com", fp("adp.com", web=web("http://adp.com/", "https://www.adp.com/home")))
+    rc = check_root("zdp.com", fp("zdp.com", web=web("http://zdp.com/", "https://www.zdp.com/home")))
     assert rc.status == "ok" and not rc.headline()
 
 
 def test_unregistered_parked_and_held():
     assert check_root("nope.com", fp("nope.com", registered=False)).status == "wrong"
-    parked = check_root("adpx.com", fp("adpx.com", ns=["ns1.parkingcrew.net"]))
+    parked = check_root("zdpx.com", fp("zdpx.com", ns=["ns1.parkingcrew.net"]))
     assert parked.status == "wrong" and "parked" in parked.reasons[0] and not parked.suggested
-    held = check_root("adpv.com", fp("adpv.com", a=["15.197.70.98"], ns=["ns1.markmonitor.com"]))
+    held = check_root("zdpv.com", fp("zdpv.com", a=["15.197.70.98"], ns=["ns1.markmonitor.com"]))
     assert held.status == "wrong" and "holding page" in held.reasons[0]
-    via_registrar = check_root("arx.com", fp("arx.com", rdap=rdap(),
-                                             web=web("http://arx.com/", "https://www.markmonitor.com/")))
+    via_registrar = check_root("oldsig.com", fp("oldsig.com", rdap=rdap(),
+                                             web=web("http://oldsig.com/", "https://www.markmonitor.com/")))
     assert "holding page" in via_registrar.reasons[0] and not via_registrar.suggested
 
 
@@ -54,11 +54,11 @@ def test_uncorroborated_suggestion_says_so():
 
 
 def test_advisory_when_dns_and_mail_run_from_a_parent():
-    f = fp("tmbc.com", ns=["ns1.adp.com", "ns2.adp.com"], mx=["mail.adp.com"],
-           web=WebInfo(fetched=True, status=200, chain=["https://tmbc.com/"], final_url="https://tmbc.com/"))
-    rc = check_root("tmbc.com", f)
-    assert rc.status == "advisory" and rc.suggested == "adp.com"
-    assert "nameservers and mail servers are run from adp.com" in rc.advisories[0]
+    f = fp("tlco.com", ns=["ns1.zdp.com", "ns2.zdp.com"], mx=["mail.zdp.com"],
+           web=WebInfo(fetched=True, status=200, chain=["https://tlco.com/"], final_url="https://tlco.com/"))
+    rc = check_root("tlco.com", f)
+    assert rc.status == "advisory" and rc.suggested == "zdp.com"
+    assert "nameservers and mail servers are run from zdp.com" in rc.advisories[0]
     # Mail at a small provider alone is not worth a hint.
     f2 = fp("shop.com", mx=["mx.smallmailhost.net"],
             web=WebInfo(fetched=True, status=200, chain=["https://shop.com/"], final_url="https://shop.com/"))
@@ -83,8 +83,8 @@ def test_extract_canonical():
 # --- end to end: flagged, not interrupted ------------------------------------------
 
 FPS = {
-    "adpcorp.com": fp("adpcorp.com", web=web("http://adpcorp.com/", "https://www.adp.com/")),
-    "adp.com": fp("adp.com", web=web("https://www.adp.com/")),
+    "zdpcorp.com": fp("zdpcorp.com", web=web("http://zdpcorp.com/", "https://www.zdp.com/")),
+    "zdp.com": fp("zdp.com", web=web("https://www.zdp.com/")),
 }
 
 
@@ -101,30 +101,30 @@ def test_cli_flags_a_wrong_root_everywhere_and_finishes(monkeypatch, tmp_path, c
     monkeypatch.setattr(pipeline, "seed_org_from_ct", no_org)
     monkeypatch.setattr(pipeline, "ALL_SOURCES", [])
     out_csv = tmp_path / "r.csv"
-    code = main(["adpcorp.com", "--no-cache", "-o", str(out_csv)])
+    code = main(["zdpcorp.com", "--no-cache", "-o", str(out_csv)])
     assert code == 3  # finished, but flagged
     out, err = capsys.readouterr()
     assert out.count("LOOKS WRONG") == 2  # banner at the top and the bottom of the table
-    assert "Suggested real root" in out and "domainfinder adp.com" in out
+    assert "Suggested real root" in out and "domainfinder zdp.com" in out
     assert "LOOKS WRONG" in err  # and on stderr, because a file was written
     rows = list(csv.DictReader(open(out_csv, encoding="utf-8-sig")))
     assert rows and all("LOOKS WRONG" in r["root_warning"] for r in rows)
-    assert rows[0]["domain"] == "adpcorp.com" and rows[0]["classification"] == "seed"
-    assert rows[0]["sources"] == "suggested real root: adp.com"
+    assert rows[0]["domain"] == "zdpcorp.com" and rows[0]["classification"] == "seed"
+    assert rows[0]["sources"] == "suggested real root: zdp.com"
     # The suggested root was added as a candidate and verified like any other.
-    code = main(["adpcorp.com", "--no-cache", "-v", "-o", str(out_csv)])
+    code = main(["zdpcorp.com", "--no-cache", "-v", "-o", str(out_csv)])
     rows = list(csv.DictReader(open(out_csv, encoding="utf-8-sig")))
-    assert any(r["domain"] == "adp.com" and "root-check" in r["sources"] for r in rows)
+    assert any(r["domain"] == "zdp.com" and "root-check" in r["sources"] for r in rows)
     capsys.readouterr()
 
-    code = main(["adpcorp.com", "--no-cache", "--json"])
+    code = main(["zdpcorp.com", "--no-cache", "--json"])
     doc = json.loads(capsys.readouterr().out)
-    assert code == 3 and doc["root_check"]["status"] == "wrong" and doc["root_check"]["suggested"] == "adp.com"
+    assert code == 3 and doc["root_check"]["status"] == "wrong" and doc["root_check"]["suggested"] == "zdp.com"
 
 
 def test_correct_root_exits_zero(monkeypatch, capsys):
     monkeypatch.setattr(pipeline, "fingerprint", fake_fp)
     monkeypatch.setattr(pipeline, "seed_org_from_ct", no_org)
     monkeypatch.setattr(pipeline, "ALL_SOURCES", [])
-    assert main(["adp.com", "--no-cache"]) == 0
+    assert main(["zdp.com", "--no-cache"]) == 0
     assert "LOOKS WRONG" not in capsys.readouterr().out

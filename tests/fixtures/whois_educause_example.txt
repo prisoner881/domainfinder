@@ -11,14 +11,14 @@ Domain Name: EXAMPLEU.EDU
 Registrant:
 	Example University
 	100 University Drive
-	Moon Township, PA 15108
+	Springfield, PA 19064
 	USA
 
 Administrative Contact:
 	IT Director
 	Example University
 	100 University Drive
-	Moon Township, PA 15108
+	Springfield, PA 19064
 	USA
 	+1.4125550100
 	itdirector@exampleu.edu

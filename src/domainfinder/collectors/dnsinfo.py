@@ -143,7 +143,7 @@ async def collect_dns(fp: Fingerprint, resolver: Resolver) -> None:
 
 
 def rname_domain(rname: str) -> str | None:
-    """SOA rname 'hostmaster.adp.com' → registrable 'adp.com'."""
+    """SOA rname 'hostmaster.zdp.com' → registrable 'zdp.com'."""
     if not rname or "." not in rname:
         return None
     local, _, rest = rname.partition(".")

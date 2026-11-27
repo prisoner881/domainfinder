@@ -92,7 +92,7 @@ def db_with(*answers, **kw):
     return db
 
 
-def rows(*names, cn="www.adp.com", org=None):
+def rows(*names, cn="www.zdp.com", org=None):
     return (COLS, [(1, "C=US, O=DigiCert Inc", cn, org or n, 100 + i, WHEN, LATER, 1) for i, n in enumerate(names)])
 
 
@@ -107,15 +107,15 @@ async def using(db, coro):
 # --- the SQL ---------------------------------------------------------------------------------
 
 def test_queries_mirror_crtsh_own_search_sql():
-    sql, args = build_query({"q": "%.adp.com", "exclude": "expired"}, 50_000)
-    assert args == {"v": "%.adp.com"}
+    sql, args = build_query({"q": "%.zdp.com", "exclude": "expired"}, 50_000)
+    assert args == {"v": "%.zdp.com"}
     assert "FROM certificate_and_identities cai" in sql
     assert "plainto_tsquery('certwatch', %(v)s::text) @@ identities(cai.CERTIFICATE)" in sql
     assert "cai.NAME_VALUE ILIKE ('%%' || %(v)s::text || '%%')" in sql
     assert "x509_notAfter(cai.CERTIFICATE) >= now() AT TIME ZONE 'UTC'" in sql
     assert "LIMIT 50000" in sql
 
-    sql, args = build_query({"O": "Automatic Data Processing, Inc."}, 20_000)
+    sql, args = build_query({"O": "Zyntara Data Processing, Inc."}, 20_000)
     assert "cai.NAME_TYPE = '2.5.4.10'" in sql and "to_tsvector('certwatch', cai.NAME_VALUE)" in sql
     assert "x509_notAfter(cai.CERTIFICATE) >=" not in sql  # expired certificates included
     assert "LIMIT 20000" in sql
@@ -132,7 +132,7 @@ def test_placeholders_become_the_same_parameter_as_crtsh_uses():
     from psycopg._queries import PostgresQuery
     from psycopg.adapt import Transformer
 
-    sql, args = build_query({"q": "%.adp.com"}, 10)
+    sql, args = build_query({"q": "%.zdp.com"}, 10)
     q = PostgresQuery(Transformer())
     q.convert(sql, args)
     text = q.query.decode()
@@ -142,9 +142,9 @@ def test_placeholders_become_the_same_parameter_as_crtsh_uses():
 
 def test_records_become_the_web_apis_rows():
     out = to_rows(["ISSUER_NAME", "COMMON_NAME", "NAME_VALUE", "ID", "NOT_BEFORE", "NOT_AFTER", "RESULT_COUNT"],
-                  [("C=US, O=DigiCert Inc", "adp.com", "adp.com\nwww.adp.com", 7, WHEN, LATER, 2)])
-    assert out == [{"issuer_ca_id": None, "issuer_name": "C=US, O=DigiCert Inc", "common_name": "adp.com",
-                    "name_value": "adp.com\nwww.adp.com", "id": 7, "not_before": "2026-01-02T03:04:05",
+                  [("C=US, O=DigiCert Inc", "zdp.com", "zdp.com\nwww.zdp.com", 7, WHEN, LATER, 2)])
+    assert out == [{"issuer_ca_id": None, "issuer_name": "C=US, O=DigiCert Inc", "common_name": "zdp.com",
+                    "name_value": "zdp.com\nwww.zdp.com", "id": 7, "not_before": "2026-01-02T03:04:05",
                     "not_after": "2027-01-02T03:04:05", "result_count": 2}]
 
 
@@ -153,13 +153,13 @@ def test_records_become_the_web_apis_rows():
 async def test_database_answers_and_is_cached(tmp_path):
     cache = Cache(tmp_path / "c.sqlite", 3600)
     http = Http(cache=cache)
-    db = db_with(rows("adp.com", "mykplan.com"))
+    db = db_with(rows("zdp.com", "myretireplan.com"))
     with respx.mock(assert_all_called=False) as mock:
         web = mock.get(url__startswith="https://crt.sh/")
-        got = await using(db, crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30))
-        again = await using(db, crtsh_json(http, {"q": "adp.com", "exclude": "expired"}, 30))
+        got = await using(db, crtsh_json(http, {"q": "zdp.com", "exclude": "expired"}, 30))
+        again = await using(db, crtsh_json(http, {"q": "zdp.com", "exclude": "expired"}, 30))
     assert isinstance(got, CtRows) and got.backend == "database" and got.cap == 50_000
-    assert [r["name_value"] for r in got] == ["adp.com", "mykplan.com"]
+    assert [r["name_value"] for r in got] == ["zdp.com", "myretireplan.com"]
     assert list(again) == list(got) and again.backend == "database"
     assert len(db.conns[0].calls) == 1  # the second search came from the cache
     assert not web.called
@@ -170,7 +170,7 @@ async def test_database_answers_and_is_cached(tmp_path):
 
 @respx.mock
 async def test_blocked_port_falls_back_to_the_web_api_and_stops_trying():
-    respx.get(url__startswith="https://crt.sh/").respond(json=[{"common_name": "adp.com", "name_value": "adp.com"}])
+    respx.get(url__startswith="https://crt.sh/").respond(json=[{"common_name": "zdp.com", "name_value": "zdp.com"}])
     http = Http()
     db = CrtshDb()
     attempts = []
@@ -180,9 +180,9 @@ async def test_blocked_port_falls_back_to_the_web_api_and_stops_trying():
         raise ConnectionRefusedError("connection refused")
 
     db._connect = refused
-    a = await using(db, crtsh_json(http, {"q": "adp.com"}, 30))
-    b = await using(db, crtsh_json(http, {"O": "ADP"}, 30))
-    assert a.backend == "web" and b.backend == "web" and a[0]["common_name"] == "adp.com"
+    a = await using(db, crtsh_json(http, {"q": "zdp.com"}, 30))
+    b = await using(db, crtsh_json(http, {"O": "ZDP"}, 30))
+    assert a.backend == "web" and b.backend == "web" and a[0]["common_name"] == "zdp.com"
     assert len(attempts) == 1  # a refused connection turns the database off for the run
     assert "cannot connect to crt.sh:5432" in db.summary() and "web API used" in db.summary()
     await http.aclose()
@@ -192,7 +192,7 @@ async def test_blocked_port_falls_back_to_the_web_api_and_stops_trying():
 async def test_failed_query_falls_back_for_that_query_then_three_in_a_row_turn_the_database_off():
     respx.get(url__startswith="https://crt.sh/").respond(json=[{"common_name": "web.com", "name_value": "web.com"}])
     http = Http()
-    db = db_with(TimeoutError(), rows("adp.com"), TimeoutError(), RuntimeError("x"), RuntimeError("y"))
+    db = db_with(TimeoutError(), rows("zdp.com"), TimeoutError(), RuntimeError("x"), RuntimeError("y"))
     got = [await using(db, crtsh_json(http, {"q": f"{c}.com"}, 30)) for c in "abcdef"]
     assert [r.backend for r in got] == ["web", "database", "web", "web", "web", "web"]
     assert db.disabled_reason.startswith("3 failures in a row")
@@ -214,7 +214,7 @@ async def test_broken_connection_is_replaced_and_a_failed_reconnect_is_not_a_blo
     async def connect():
         if len(conns) == 1:
             raise crtsh_db.ConnectFailed("1.2.3.4: OperationalError: too many connections")
-        conn = FakeConn([rows("adp.com"), RuntimeError("server closed the connection"), rows("x.com")])
+        conn = FakeConn([rows("zdp.com"), RuntimeError("server closed the connection"), rows("x.com")])
         conns.append(conn)
         return conn
 
@@ -256,7 +256,7 @@ async def test_missing_driver_falls_back_quietly(monkeypatch):
         raise ImportError("No module named 'psycopg'")
 
     db._connect = no_driver
-    out = await using(db, crtsh_json(http, {"q": "adp.com"}, 30))
+    out = await using(db, crtsh_json(http, {"q": "zdp.com"}, 30))
     assert out == [] and out.backend == "web"
     assert db.disabled_reason == "the psycopg driver is not installed"
     await http.aclose()
@@ -266,7 +266,7 @@ async def test_missing_driver_falls_back_quietly(monkeypatch):
 async def test_without_a_database_client_only_the_web_api_is_used():
     route = respx.get(url__startswith="https://crt.sh/").respond(json=[{"common_name": "x.com"}])
     http = Http()
-    out = await crtsh_json(http, {"q": "adp.com"}, 30)  # no client in context (--no-crtsh-db)
+    out = await crtsh_json(http, {"q": "zdp.com"}, 30)  # no client in context (--no-crtsh-db)
     assert out.backend == "web" and route.called
     await http.aclose()
 
@@ -286,7 +286,7 @@ async def test_organization_search_reports_the_limit_of_the_route_used():
     from domainfinder.sources.crtsh import CrtshOrgSource
     from test_sources import ctx_for
 
-    many = (COLS, [(1, "DigiCert", f"www.d{i}.com", "Automatic Data Processing, Inc.", i, WHEN, LATER, 1)
+    many = (COLS, [(1, "DigiCert", f"www.d{i}.com", "Zyntara Data Processing, Inc.", i, WHEN, LATER, 1)
                    for i in range(1000)])
     db = db_with(many, many, limit=1000)
     http = Http()
@@ -307,21 +307,21 @@ def _der_with_org(org: str) -> bytes:
 
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
-                      x509.NameAttribute(NameOID.COMMON_NAME, "adp.com")])
+                      x509.NameAttribute(NameOID.COMMON_NAME, "zdp.com")])
     cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
             .serial_number(1).not_valid_before(WHEN).not_valid_after(LATER).sign(key, hashes.SHA256()))
     return cert.public_bytes(serialization.Encoding.DER)
 
 
 async def test_seed_organization_comes_from_certificates_in_the_database():
-    search = (COLS, [(1, "C=US, O=DigiCert Inc, CN=DigiCert Global G2 TLS RSA SHA256 2020 CA1", "www.adp.com",
-                      "www.adp.com", 42, WHEN, LATER, 1)])
-    db = db_with(search, (["certificate"], [(_der_with_org("Automatic Data Processing, Inc."),)]))
+    search = (COLS, [(1, "C=US, O=DigiCert Inc, CN=DigiCert Global G2 TLS RSA SHA256 2020 CA1", "www.zdp.com",
+                      "www.zdp.com", 42, WHEN, LATER, 1)])
+    db = db_with(search, (["certificate"], [(_der_with_org("Zyntara Data Processing, Inc."),)]))
     http = Http()
     with respx.mock(assert_all_called=False) as mock:
         web = mock.get(url__startswith="https://crt.sh/")
-        orgs = await using(db, seed_org_from_ct(http, "adp.com"))
-    assert orgs == ["Automatic Data Processing, Inc."]
+        orgs = await using(db, seed_org_from_ct(http, "zdp.com"))
+    assert orgs == ["Zyntara Data Processing, Inc."]
     assert not web.called
     assert db.conns[0].calls[1][1] == {"id": 42}
     await http.aclose()
@@ -338,12 +338,12 @@ def test_settings_and_flag(monkeypatch):
     monkeypatch.setenv("DOMAINFINDER_CRTSH_DB_LIMIT", "200000")
     s = Settings.from_env(load_dotenv_file=False)
     assert s.crtsh_db is False and s.crtsh_db_limit == 200_000
-    assert build_parser().parse_args(["adp.com", "--no-crtsh-db"]).no_crtsh_db is True
+    assert build_parser().parse_args(["zdp.com", "--no-crtsh-db"]).no_crtsh_db is True
 
 
 def test_module_constants():
     assert (crtsh_db.HOST, crtsh_db.PORT, crtsh_db.DBNAME, crtsh_db.USER) == ("crt.sh", 5432, "certwatch", "guest")
-    assert json.dumps(to_rows(COLS, rows("adp.com")[1]))  # rows are cacheable as JSON
+    assert json.dumps(to_rows(COLS, rows("zdp.com")[1]))  # rows are cacheable as JSON
 
 
 # --- 1.2.2: crt.sh's connection pooler ---------------------------------------------------------
@@ -361,15 +361,15 @@ async def test_connection_closed_by_the_pooler_is_replaced_and_the_query_retried
     IdleTimeout.__name__ = "ProtocolViolation"
 
     async def connect():
-        answers = [rows("adp.com"), IdleTimeout("client_idle_timeout")] if not conns else [rows("adp.fr")]
+        answers = [rows("zdp.com"), IdleTimeout("client_idle_timeout")] if not conns else [rows("zdp.fr")]
         conns.append(FakeConn(answers))
         return conns[-1]
 
     db._connect = connect
-    a = await using(db, crtsh_json(http, {"q": "adp.com"}, 30))
-    b = await using(db, crtsh_json(http, {"O": "ADP France"}, 30))
+    a = await using(db, crtsh_json(http, {"q": "zdp.com"}, 30))
+    b = await using(db, crtsh_json(http, {"O": "ZDP France"}, 30))
     assert (a.backend, b.backend) == ("database", "database")
-    assert b[0]["name_value"] == "adp.fr"
+    assert b[0]["name_value"] == "zdp.fr"
     assert len(conns) == 2 and conns[0].closed
     assert db.failures == [] and db.fallbacks == 0  # a lost connection is not the database failing
     assert not any(c.transactions or c.settings for c in conns)  # crt.sh's pooler allows neither
@@ -398,7 +398,7 @@ async def test_database_searches_get_their_own_time_limit_and_cancel_on_expiry(m
         return await real_wait_for(aw, timeout)
 
     monkeypatch.setattr(crtsh_db.asyncio, "wait_for", spy)
-    await db.search({"O": "Automatic Data Processing, Inc."}, 120)
+    await db.search({"O": "Zyntara Data Processing, Inc."}, 120)
     assert limits[:2] == [300, 300]  # the database limit, not the web API's 120 s
     assert db.conns[0].settings == []  # never a SET on crt.sh's shared server connections
 

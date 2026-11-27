@@ -18,10 +18,10 @@ def test_comma_and_newline_separated_lists():
 def test_entries_are_normalized_deduplicated_and_validated():
     text = '''# found by the asset inventory
 "https://www.Example.co.uk/login", mail.example.co.uk, EXAMPLE.CO.UK
-adp.信息, not a domain, localhost, 10.0.0.1  # trailing comment
+zdp.信息, not a domain, localhost, 10.0.0.1  # trailing comment
 '''
     res = parse_domain_list(text, "inv.csv")
-    assert res.domains == ["example.co.uk", "adp.xn--vuq861b"]
+    assert res.domains == ["example.co.uk", "zdp.xn--vuq861b"]
     assert res.invalid == ["not a domain", "localhost", "10.0.0.1"]
     assert res.reduced == 2  # the URL and the mail host
     s = res.summary()
@@ -31,14 +31,14 @@ adp.信息, not a domain, localhost, 10.0.0.1  # trailing comment
 
 def test_read_file_with_bom(tmp_path):
     f = tmp_path / "c.csv"
-    f.write_text("﻿domain\nadp.ca\nmyadp.com\n", encoding="utf-8")
+    f.write_text("﻿domain\nzdp.ca\nmyzdp.com\n", encoding="utf-8")
     res = read_domain_file(str(f))
-    assert res.domains == ["adp.ca", "myadp.com"]
+    assert res.domains == ["zdp.ca", "myzdp.com"]
     assert res.invalid == ["domain"]  # a header line is reported, not imported
 
 
 def test_missing_import_file_is_a_clean_error(capsys):
-    assert main(["adp.com", "--import", "/nonexistent/list.csv"]) == 2
+    assert main(["zdp.com", "--import", "/nonexistent/list.csv"]) == 2
     assert "cannot read /nonexistent/list.csv" in capsys.readouterr().err
 
 
@@ -48,17 +48,17 @@ async def test_imported_candidates_are_verified_like_any_other(monkeypatch, tmp_
     monkeypatch.setattr(pipeline, "fingerprint", fake_fingerprint)
     monkeypatch.setattr(pipeline, "seed_org_from_ct", fake_ct_org)
     monkeypatch.setattr(pipeline, "ALL_SOURCES", [])  # only the imported list
-    res = parse_domain_list("myadp.com, adp.fr, adp.com, adpemployment.com", "list.csv")
+    res = parse_domain_list("myzdp.com, zdp.fr, zdp.com, zdpemployment.com", "list.csv")
     rep = await pipeline.run(
-        "adp.com", Settings(cache_dir=tmp_path, use_cache=False),
+        "zdp.com", Settings(cache_dir=tmp_path, use_cache=False),
         imported_candidates=[(d, res.source) for d in res.domains], import_notes=[res.summary()],
     )
     by = {r.domain: r for r in rep.results}
-    assert set(by) == {"myadp.com", "adp.fr", "adpemployment.com"}  # the seed itself is dropped
-    assert by["myadp.com"].classification is Classification.OWNED
-    assert by["adp.fr"].classification is Classification.REJECTED
-    assert by["adpemployment.com"].status == "unregistered"
-    assert by["myadp.com"].sources == {"import": "imported from list.csv"}
+    assert set(by) == {"myzdp.com", "zdp.fr", "zdpemployment.com"}  # the seed itself is dropped
+    assert by["myzdp.com"].classification is Classification.OWNED
+    assert by["zdp.fr"].classification is Classification.REJECTED
+    assert by["zdpemployment.com"].status == "unregistered"
+    assert by["myzdp.com"].sources == {"import": "imported from list.csv"}
     assert rep.notes[0].startswith("import list.csv:")
 
 
@@ -76,7 +76,7 @@ async def test_imported_candidates_survive_the_max_candidates_cap(monkeypatch, t
     monkeypatch.setattr(pipeline, "fingerprint", fake_fingerprint)
     monkeypatch.setattr(pipeline, "seed_org_from_ct", fake_ct_org)
     monkeypatch.setattr(pipeline, "ALL_SOURCES", [Many])
-    rep = await pipeline.run("adp.com", Settings(cache_dir=tmp_path, use_cache=False), max_candidates=3,
-                             imported_candidates=[("myadp.com", "x"), ("adp.fr", "x")])
+    rep = await pipeline.run("zdp.com", Settings(cache_dir=tmp_path, use_cache=False), max_candidates=3,
+                             imported_candidates=[("myzdp.com", "x"), ("zdp.fr", "x")])
     doms = {r.domain for r in rep.results}
-    assert {"myadp.com", "adp.fr"} <= doms and len(doms) == 3
+    assert {"myzdp.com", "zdp.fr"} <= doms and len(doms) == 3

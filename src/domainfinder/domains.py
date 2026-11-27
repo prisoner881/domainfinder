@@ -50,7 +50,7 @@ def registrable(name: str) -> str | None:
 
 
 def label(domain: str) -> str:
-    """The registrable label: 'adp' for adp.com, 'adp' for adp.co.uk."""
+    """The registrable label: 'zdp' for zdp.com, 'zdp' for zdp.co.uk."""
     return _extract(clean(domain)).domain
 
 
@@ -81,14 +81,14 @@ def _label_to_unicode(lab: str) -> str:
 
 
 def to_unicode(domain: str) -> str:
-    """'adp.xn--vuq861b' → 'adp.信息'; other names come back unchanged."""
+    """'zdp.xn--vuq861b' → 'zdp.信息'; other names come back unchanged."""
     if "xn--" not in domain.lower():
         return domain
     return ".".join(_label_to_unicode(lab) for lab in domain.split("."))
 
 
 def to_ascii(domain: str) -> str:
-    """'adp.信息' → 'adp.xn--vuq861b' (the form DNS uses)."""
+    """'zdp.信息' → 'zdp.xn--vuq861b' (the form DNS uses)."""
     try:
         domain.encode("ascii")
         return domain

@@ -33,7 +33,7 @@ MAX_VARIANTS = 4
 
 
 def org_variants(name: str) -> list[str]:
-    """'Automatic Data Processing, Inc.' → itself, '…, Inc', '… Inc.', '… Inc'."""
+    """'Zyntara Data Processing, Inc.' → itself, '…, Inc', '… Inc.', '… Inc'."""
     name = " ".join(name.split())
     out = [name]
     stripped = name.rstrip(".")

@@ -22,7 +22,7 @@ NOT_NAMES = re.compile(r"^(name|jurisdiction|state|country|subsidiar|percent|own
 
 
 # Exhibit 21 file names vary by filer: ex21.htm, ex-21.htm, ex211.htm,
-# adp-20260630xexhibit21.htm, exhibit21_1.htm ...
+# zdp-20260630xexhibit21.htm, exhibit21_1.htm ...
 EX21_NAME = re.compile(r"(?:ex|exhibit)[-_.]?21", re.I)
 HREF = re.compile(r'href="([^"]+)"', re.I)
 

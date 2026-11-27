@@ -1,0 +1,6 @@
+{"objectClassName":"domain","ldhName":"zdp.com",
+ "entities":[
+  {"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"],["contact-uri",{},"uri","https://domains.markmonitor.com/whois/contact/zdp.com"],["fn",{},"text",""],["adr",{"cc":"US"},"text",["","","","","OH","",""]]]]},
+  {"roles":["technical"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text",""]]]},
+  {"roles":["registrar"],"vcardArray":["vcard",[["version",{},"text","4.0"],["org",{"type":"work"},"text","Markmonitor Inc."],["fn",{},"text","Markmonitor Inc."]]]}],
+ "events":[{"eventAction":"registration","eventDate":"1995-03-15T04:00:00.000+00:00"}]}

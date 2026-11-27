@@ -1,6 +1,6 @@
 """1.3.0: "owned" needs evidence of control; WHOIS/RDAP contact data points."""
 
-from helpers import ADP_NS, cand, fp, rdap, seed_fp
+from helpers import ZDP_NS, cand, fp, rdap, seed_fp
 
 from domainfinder.collectors.rdap import parse_domain, vcard_fields
 from domainfinder.collectors.whois import parse_educause
@@ -9,12 +9,12 @@ from domainfinder.models import Classification as C
 from domainfinder.models import RdapInfo
 from domainfinder.verify import CONTROL_KINDS, Scorer, SeedProfile
 
-ORG = "Automatic Data Processing, Inc."
+ORG = "Zyntara Data Processing, Inc."
 HELD = dict(a=["15.197.70.98"], ns=["ns1.markmonitor.com", "ns2.markmonitor.com"])
 
 
 def scorer(seed=None):
-    return Scorer(SeedProfile.build(seed or seed_fp(), [ORG], ["adp"]))
+    return Scorer(SeedProfile.build(seed or seed_fp(), [ORG], ["zdp"]))
 
 
 def kinds(r):
@@ -24,21 +24,21 @@ def kinds(r):
 # --- the control rule -----------------------------------------------------------------------
 
 def test_registration_similarity_alone_stops_at_review():
-    r = scorer().score(fp("adp.cloud", rdap=rdap(), **HELD), cand("adp.cloud"), set())
+    r = scorer().score(fp("zdp.cloud", rdap=rdap(), **HELD), cand("zdp.cloud"), set())
     assert r.score == 65 and r.classification is C.REVIEW and "registration_only" in kinds(r)
 
 
 def test_any_control_signal_makes_the_same_domain_owned():
-    # Held at MarkMonitor/NJ with the brand, plus a redirect into the seed's site.
+    # Held at MarkMonitor/OH with the brand, plus a redirect into the seed's site.
     from helpers import web
 
-    r = scorer().score(fp("adp.company", rdap=rdap(), web=web("http://adp.company/", "https://www.adp.com/"), **HELD),
-                       cand("adp.company"), set())
+    r = scorer().score(fp("zdp.company", rdap=rdap(), web=web("http://zdp.company/", "https://www.zdp.com/"), **HELD),
+                       cand("zdp.company"), set())
     assert r.classification is C.OWNED and "registration_only" not in kinds(r)
 
 
 def test_dns_zone_run_by_the_seed_is_owned_without_any_registration_data():
-    r = scorer().score(fp("adp.lk", ns=sorted(ADP_NS), soa_rname="hostmaster.adp.com"), cand("adp.lk"), set())
+    r = scorer().score(fp("zdp.lk", ns=sorted(ZDP_NS), soa_rname="hostmaster.zdp.com"), cand("zdp.lk"), set())
     assert r.classification is C.OWNED
 
 
@@ -54,14 +54,14 @@ def test_control_kinds_exclude_paperwork():
 # --- normalization ---------------------------------------------------------------------------
 
 def test_contact_values_normalize_and_placeholders_drop():
-    assert norm_email("mailto:DNS-Admin@ADP.com") == "dns-admin@adp.com"
+    assert norm_email("mailto:DNS-Admin@ZDP.com") == "dns-admin@zdp.com"
     assert norm_email("REDACTED FOR PRIVACY") is None
-    assert norm_email("https://domains.markmonitor.com/whois/contact/adp.cloud") is None
-    assert norm_phone("tel:+1.973-974-5000;ext=12") == "19739745000"
+    assert norm_email("https://domains.markmonitor.com/whois/contact/zdp.cloud") is None
+    assert norm_phone("tel:+1.555-555-0123;ext=12") == "15555550123"
     assert norm_phone("REDACTED FOR PRIVACY") is None and norm_phone("+1.555") is None
-    assert norm_street(["One ADP Blvd."], "Roseland", "07068") == "one adp blvd roseland 07068"
+    assert norm_street(["One ZDP Blvd."], "Riverton", "08077") == "one zdp blvd riverton 08077"
     assert norm_street("REDACTED FOR PRIVACY", "REDACTED", "") is None
-    assert norm_street("One ADP Blvd", "", "") is None  # a street alone is too vague
+    assert norm_street("One ZDP Blvd", "", "") is None  # a street alone is too vague
 
 
 # --- RDAP parsing ----------------------------------------------------------------------------
@@ -76,8 +76,8 @@ def rdap_doc(*entities):
 
 REGISTRANT = {"roles": ["registrant"], "vcardArray": jcard(
     ["fn", {}, "text", "Domain Administrator"], ["org", {}, "text", ORG],
-    ["adr", {"cc": "US"}, "text", ["", "", "One ADP Blvd", "Roseland", "NJ", "07068", ""]],
-    ["tel", {"type": "voice"}, "uri", "tel:+1.9739745000"], ["email", {}, "text", "dnsadmin@adp.com"])}
+    ["adr", {"cc": "US"}, "text", ["", "", "One ZDP Blvd", "Riverton", "OH", "08077", ""]],
+    ["tel", {"type": "voice"}, "uri", "tel:+1.5555550123"], ["email", {}, "text", "dnsadmin@zdp.com"])}
 REGISTRAR = {"roles": ["registrar"], "vcardArray": jcard(
     ["fn", {}, "text", "Markmonitor Inc."],
     ["adr", {}, "text", ["", "", "3540 E Longwing Ln", "Meridian", "ID", "83646", ""]]),
@@ -95,11 +95,11 @@ PROXY = {"roles": ["administrative"], "vcardArray": jcard(
 def test_rdap_contacts_are_collected_and_registrar_data_kept_apart():
     info = RdapInfo()
     parse_domain(rdap_doc(REGISTRANT, REGISTRAR, TECH_REDACTED, PROXY), info, "test")
-    assert info.contacts == [{"role": "registrant", "email": "dnsadmin@adp.com", "phone": "19739745000",
-                              "street": "one adp blvd roseland 07068"}]
+    assert info.contacts == [{"role": "registrant", "email": "dnsadmin@zdp.com", "phone": "15555550123",
+                              "street": "one zdp blvd riverton 08077"}]
     # the registrar's (and its abuse desk's) data is recorded only to be excluded
     assert "12086851750" in info.registrar_contacts and "abusecomplaints@markmonitor.com" in info.registrar_contacts
-    assert info.registrant_region == "NJ"  # existing fields unaffected
+    assert info.registrant_region == "OH"  # existing fields unaffected
 
 
 def test_vcard_fields_tolerates_odd_values():
@@ -110,27 +110,27 @@ def test_vcard_fields_tolerates_odd_values():
 
 # --- .edu WHOIS ------------------------------------------------------------------------------
 
-EDU = """Domain Name: RMU.EDU
+EDU = """Domain Name: ERU.EDU
 
 Registrant:
-\tRobert Morris University
-\t6001 University Boulevard
-\tMoon Township, PA 15108
+\tElmridge University
+\t100 College Avenue
+\tSpringfield, PA 19064
 \tUSA
 
 Administrative Contact:
 \tIT Services
-\tRobert Morris University
-\t6001 University Boulevard
-\tMoon Township, PA 15108
+\tElmridge University
+\t100 College Avenue
+\tSpringfield, PA 19064
 \tUSA
-\t+1.4123973000
-\tdomains@rmu.edu
+\t+1.5555550100
+\tdomains@eru.edu
 
 Technical Contact:
 \tNetwork Operations
-\t+1.4123973001
-\tnoc@rmu.edu
+\t+1.5555550101
+\tnoc@eru.edu
 """
 
 
@@ -138,9 +138,9 @@ def test_educause_contacts():
     info = RdapInfo()
     assert parse_educause(EDU, info)
     by_role = {c["role"]: c for c in info.contacts}
-    assert by_role["registrant"]["street"] == "6001 university boulevard moon township pa 15108"
-    assert by_role["administrative"] == {"role": "administrative", "email": "domains@rmu.edu", "phone": "14123973000"}
-    assert by_role["technical"]["email"] == "noc@rmu.edu"
+    assert by_role["registrant"]["street"] == "100 college avenue springfield pa 19064"
+    assert by_role["administrative"] == {"role": "administrative", "email": "domains@eru.edu", "phone": "15555550100"}
+    assert by_role["technical"]["email"] == "noc@eru.edu"
 
 
 # --- scoring ---------------------------------------------------------------------------------
@@ -152,16 +152,16 @@ def with_contacts(info, *contacts, registrar_contacts=()):
 
 
 def test_contact_email_at_the_seed_is_strong_control_evidence():
-    held = fp("workscape.com", rdap=with_contacts(rdap(), {"role": "registrant", "email": "dnsadmin@adp.com"}), **HELD)
-    r = scorer().score(held, cand("workscape.com"), set())
+    held = fp("perkscape.com", rdap=with_contacts(rdap(), {"role": "registrant", "email": "dnsadmin@zdp.com"}), **HELD)
+    r = scorer().score(held, cand("perkscape.com"), set())
     assert "whois_email" in kinds(r) and r.classification is C.OWNED
     detail = next(e.detail for e in r.evidence if e.kind == "whois_email")
-    assert detail == "WHOIS registrant contact email is at adp.com" and "dnsadmin" not in detail
+    assert detail == "WHOIS registrant contact email is at zdp.com" and "dnsadmin" not in detail
 
 
 def test_contact_email_at_a_verified_domain_counts_too():
-    c = {"role": "technical", "email": "hostmaster@workmarket.com"}
-    r = scorer().score(fp("wm.solutions", rdap=with_contacts(rdap(), c), **HELD), cand("wm.solutions"), {"workmarket.com"})
+    c = {"role": "technical", "email": "hostmaster@taskhive.com"}
+    r = scorer().score(fp("th.solutions", rdap=with_contacts(rdap(), c), **HELD), cand("th.solutions"), {"taskhive.com"})
     assert "whois_email" in kinds(r)
 
 
@@ -179,21 +179,21 @@ def seed_with(*contacts, registrar_contacts=()):
     return s
 
 
-SEED_REGISTRANT = {"role": "registrant", "email": "domains@adp-legal.example", "phone": "19739745000",
-                   "street": "one adp blvd roseland 07068"}
+SEED_REGISTRANT = {"role": "registrant", "email": "domains@zdp-legal.example", "phone": "15555550123",
+                   "street": "one zdp blvd riverton 08077"}
 
 
 def test_same_phone_and_street_as_the_seed_support_but_never_prove():
-    c = {"role": "administrative", "phone": "19739745000", "street": "one adp blvd roseland 07068"}
-    r = scorer(seed_with(SEED_REGISTRANT)).score(fp("vesalute.com", rdap=with_contacts(rdap(), c), **HELD),
-                                                 cand("vesalute.com"), set())
+    c = {"role": "administrative", "phone": "15555550123", "street": "one zdp blvd riverton 08077"}
+    r = scorer(seed_with(SEED_REGISTRANT)).score(fp("salutehq.com", rdap=with_contacts(rdap(), c), **HELD),
+                                                 cand("salutehq.com"), set())
     assert {"whois_phone", "whois_street"} <= kinds(r)
     assert r.classification is C.REVIEW  # medium evidence on a held domain: still no control
-    assert all("19739745000" not in e.detail and "roseland" not in e.detail for e in r.evidence)
+    assert all("15555550123" not in e.detail and "riverton" not in e.detail for e in r.evidence)
 
 
 def test_same_contact_email_off_the_seed_domain_is_medium():
-    c = {"role": "registrant", "email": "domains@adp-legal.example"}
+    c = {"role": "registrant", "email": "domains@zdp-legal.example"}
     r = scorer(seed_with(SEED_REGISTRANT)).score(fp("x-brand.com", rdap=with_contacts(rdap(), c)), cand("x-brand.com"), set())
     e = next(e for e in r.evidence if e.kind == "whois_email_same")
     assert e.strength.value == "medium" and e.points == 25
@@ -202,7 +202,7 @@ def test_same_contact_email_off_the_seed_domain_is_medium():
 def test_registrar_phone_and_technical_contacts_never_match_the_seed():
     shared = "12083895740"  # e.g. the registrar's tech desk, on every customer's record
     seed = seed_with({"role": "registrant", "phone": shared}, registrar_contacts=[shared])
-    c = [{"role": "registrant", "phone": shared}, {"role": "technical", "phone": "19739745000"}]
-    seed.rdap.contacts.append({"role": "technical", "phone": "19739745000"})
+    c = [{"role": "registrant", "phone": shared}, {"role": "technical", "phone": "15555550123"}]
+    seed.rdap.contacts.append({"role": "technical", "phone": "15555550123"})
     r = scorer(seed).score(fp("unrelated.com", rdap=with_contacts(rdap(), *c)), cand("unrelated.com"), set())
     assert "whois_phone" not in kinds(r)

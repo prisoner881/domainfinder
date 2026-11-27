@@ -165,7 +165,7 @@ def initials(name: str) -> str:
 
 
 def plausible_org_for_label(org: str, brand: str) -> bool:
-    """'Automatic Data Processing, Inc.' is plausible for 'adp' (initials)."""
+    """'Zyntara Data Processing, Inc.' is plausible for 'zdp' (initials)."""
     n = normalize(org).replace(" ", "")
     return bool(brand) and (brand in n or initials(org) == brand or n.startswith(brand))
 
@@ -623,15 +623,15 @@ class Scorer:
                 add(kind, Strength.MEDIUM, f"same WHOIS {hit['role']} {what} as {self.seed.fp.domain}'s")
 
     def _brand_org(self, org: str) -> bool:
-        """'ADP, Inc.' / 'ADP France' for brand 'adp': likely the seed's own
-        entity under its short name. Neither a match nor a conflict — 'Groupe ADP'
-        or 'Aéroports de Paris' do not start with the brand and stay conflicts."""
+        """'ZDP, Inc.' / 'ZDP France' for brand 'zdp': likely the seed's own
+        entity under its short name. Neither a match nor a conflict — 'Groupe ZDP'
+        or 'Zone de Plaisance' do not start with the brand and stay conflicts."""
         toks = normalize(org).split()
         return bool(toks) and any(len(b) >= 3 and toks[0] == b for b in self.seed.brand_labels)
 
     def _org_name_label(self, domain: str) -> str:
         """The domain is exactly the seed organization's name run together
-        (automaticdataprocessing.com for 'Automatic Data Processing, Inc.')."""
+        (zyntaradataprocessing.com for 'Zyntara Data Processing, Inc.')."""
         lab = label(domain)
         for o in self.seed.org_names:
             slug = "".join(normalize(o).split())

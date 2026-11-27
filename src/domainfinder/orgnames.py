@@ -15,7 +15,7 @@ LEGAL_SUFFIXES = {
 
 
 def normalize(name: str) -> str:
-    """'Automatic Data Processing, Inc.' → 'automatic data processing'."""
+    """'Zyntara Data Processing, Inc.' → 'zyntara data processing'."""
     if not name:
         return ""
     s = unicodedata.normalize("NFKD", name)
@@ -38,9 +38,9 @@ def same_org(a: str, b: str) -> bool:
     """True when two organization names plausibly name the same company.
 
     Exact match after normalization, or one name's tokens are a leading run of
-    the other's with at least two tokens ("Automatic Data Processing" vs
-    "Automatic Data Processing Limited"). A single short token ("ADP") only
-    matches exactly, so "ADP" ≠ "Aéroports de Paris".
+    the other's with at least two tokens ("Zyntara Data Processing" vs
+    "Zyntara Data Processing Limited"). A single short token ("ZDP") only
+    matches exactly, so "ZDP" ≠ "Zone de Plaisance".
     """
     na, nb = normalize(a), normalize(b)
     if not na or not nb:

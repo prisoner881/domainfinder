@@ -1,6 +1,0 @@
-{"objectClassName":"domain","ldhName":"adp.com",
- "entities":[
-  {"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"],["contact-uri",{},"uri","https://domains.markmonitor.com/whois/contact/adp.com"],["fn",{},"text",""],["adr",{"cc":"US"},"text",["","","","","NJ","",""]]]]},
-  {"roles":["technical"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text",""]]]},
-  {"roles":["registrar"],"vcardArray":["vcard",[["version",{},"text","4.0"],["org",{"type":"work"},"text","Markmonitor Inc."],["fn",{},"text","Markmonitor Inc."]]]}],
- "events":[{"eventAction":"registration","eventDate":"1991-06-24T04:00:00.000+00:00"}]}
