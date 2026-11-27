@@ -12,6 +12,7 @@ import asyncio
 import re
 
 from ..cache import Cache
+from ..contacts import REDACTED
 from ..models import RdapInfo
 
 WHOIS_SERVERS = {"edu": "whois.educause.edu"}
@@ -116,3 +117,128 @@ async def whois_lookup(domain: str, cache: Cache, timeout: float = 8.0) -> RdapI
         info.error = "not found in WHOIS"
         return info
     return None
+
+
+# ---------------------------------------------------------------------------
+# Registrar WHOIS: the fallback when a registrar's RDAP refuses (rate limits).
+# The registry's WHOIS names the registrar's WHOIS server ("Registrar WHOIS
+# Server:"); the registrar's answer carries the registrant fields and
+# contacts in ICANN's standard "Key: Value" layout.
+
+IANA_WHOIS = "whois.iana.org"
+REGISTRY_WHOIS = {"com": "whois.verisign-grs.com", "net": "whois.verisign-grs.com"}
+SERVER_TTL = 30 * 86400
+REGISTRAR_SERVER = re.compile(r"^\s*Registrar WHOIS Server:\s*(\S+)", re.I | re.M)
+IANA_SERVER = re.compile(r"^\s*whois:\s*(\S+)", re.I | re.M)
+WHOIS_SPACING = 1.0  # seconds between queries to one WHOIS server
+_server_locks: dict[str, asyncio.Lock] = {}
+
+
+async def whois_query(server: str, query: str, cache: Cache, ttl: int = WHOIS_TTL,
+                      timeout: float = 8.0, max_bytes: int = 200_000) -> str | None:
+    """One port-43 query, cached; one at a time per server, a second apart.
+    A failure returns an older cached answer if there is one, else None."""
+    key = f"whois {server} {query}"
+    text = cache.get(key, ttl)
+    if isinstance(text, str):
+        return text
+    lock = _server_locks.setdefault(server, asyncio.Lock())
+    async with lock:
+        writer = None
+        text = None
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(server, 43), timeout)
+            writer.write(f"{query}\r\n".encode())
+            await writer.drain()
+            chunks, size = [], 0
+            while size < max_bytes:
+                chunk = await asyncio.wait_for(reader.read(65536), timeout)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            text = b"".join(chunks).decode("utf-8", "replace") or None
+        except Exception:  # noqa: BLE001 - blocked port, refused, timeout
+            text = None
+        finally:
+            if writer is not None:
+                writer.close()
+            await asyncio.sleep(WHOIS_SPACING)
+    if text is None:
+        stale = cache.get_stale(key)
+        return stale[0] if stale and isinstance(stale[0], str) else None
+    cache.set(key, text)
+    return text
+
+
+async def registry_whois_server(tld: str, cache: Cache) -> str | None:
+    if tld in REGISTRY_WHOIS:
+        return REGISTRY_WHOIS[tld]
+    text = await whois_query(IANA_WHOIS, tld, cache, ttl=SERVER_TTL)
+    m = IANA_SERVER.search(text or "")
+    return m.group(1).lower().rstrip(".") if m else None
+
+
+async def registrar_whois(domain: str, cache: Cache) -> RdapInfo | None:
+    """Registrant fields and contacts from WHOIS: the registry's answer, then
+    the registrar's server it names. None when nothing could be asked."""
+    registry = await registry_whois_server(domain.rsplit(".", 1)[-1].lower(), cache)
+    if not registry:
+        return None
+    text = await whois_query(registry, domain, cache)
+    if not text:
+        return None
+    info = RdapInfo()
+    parse_icann_whois(text, info, registry)  # thick registries answer with the registrant themselves
+    m = REGISTRAR_SERVER.search(text)
+    server = m.group(1).lower().rstrip(".") if m else ""
+    server = server.split("://", 1)[-1].split("/", 1)[0]
+    if server and server != registry:
+        more = await whois_query(server, domain, cache)
+        if more:
+            parse_icann_whois(more, info, server)
+    return info if info.available else None
+
+
+def parse_icann_whois(text: str, info: RdapInfo, source: str) -> bool:
+    """ICANN's registration data layout ("Registrant Organization: ...").
+    Fills what `info` lacks; redaction placeholders and privacy services are
+    ignored, the registrar's abuse contacts kept apart. True if anything was
+    found."""
+    from ..contacts import contact, norm_email, norm_phone, norm_street
+    from .rdap import _placeholder
+
+    fields: dict[str, str] = {}
+    for line in text.replace("\r", "").split("\n"):
+        k, sep, v = line.partition(":")
+        k, v = k.strip().lower(), v.strip()
+        if sep and v and k and k not in fields and len(k) < 60:
+            fields[k] = v
+    if not any(k.startswith(("registrant", "admin", "tech", "registrar")) for k in fields):
+        return False
+    info.available = True
+    if source not in info.sources:
+        info.sources.append(source)
+    org = fields.get("registrant organization", "")
+    if org and not info.registrant_org and not _placeholder(org) and not REDACTED.search(org):
+        info.registrant_org = org
+    for attr, key in (("registrant_region", "registrant state/province"), ("registrant_country", "registrant country")):
+        v = fields.get(key, "")
+        if v and not getattr(info, attr) and not _placeholder(v) and not REDACTED.search(v):
+            setattr(info, attr, v)
+    if not info.registrar and fields.get("registrar"):
+        info.registrar = fields["registrar"]
+    for role, prefix in (("registrant", "registrant"), ("administrative", "admin"),
+                         ("technical", "tech"), ("billing", "billing")):
+        if _placeholder(fields.get(f"{prefix} organization", "")) or _placeholder(fields.get(f"{prefix} name", "")):
+            continue  # a privacy service's contact data is shared by all its customers
+        street = norm_street(fields.get(f"{prefix} street", ""), fields.get(f"{prefix} city", ""),
+                             fields.get(f"{prefix} postal code", ""))
+        c = contact(role, norm_email(fields.get(f"{prefix} email")), norm_phone(fields.get(f"{prefix} phone")), street)
+        if c and c not in info.contacts:
+            info.contacts.append(c)
+    for key in ("registrar abuse contact email", "registrar abuse contact phone"):
+        v = norm_email(fields.get(key)) or norm_phone(fields.get(key))
+        if v and v not in info.registrar_contacts:
+            info.registrar_contacts.append(v)
+    return True

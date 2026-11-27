@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import asyncio
 import ipaddress
 import logging
+import re
+import time
+from collections import Counter
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -156,6 +158,20 @@ def _collect_contacts(info: RdapInfo, roles: list[str], v: dict[str, Any]) -> No
             info.contacts.append(c)
 
 
+def merge_info(info: RdapInfo, extra: RdapInfo) -> None:
+    """Fill what `info` lacks from `extra` (registrant fields, contacts)."""
+    for f in ("registrant_org", "registrant_name", "registrant_region", "registrant_country"):
+        if not getattr(info, f) and getattr(extra, f):
+            setattr(info, f, getattr(extra, f))
+    for c in extra.contacts:
+        if c not in info.contacts:
+            info.contacts.append(c)
+    for x in extra.registrar_contacts:
+        if x not in info.registrar_contacts:
+            info.registrar_contacts.append(x)
+    info.sources += [s for s in extra.sources if s not in info.sources]
+
+
 def related_links(d: dict[str, Any], self_url: str) -> list[str]:
     out = []
     for link in d.get("links") or []:
@@ -253,15 +269,63 @@ def ip_answer(r) -> bool:
     return rdap_object(r, "ip network")
 
 
+COOLDOWN_KEY = "registrar-cooldown "
+MIN_COOLDOWN, MAX_COOLDOWN, DEFAULT_COOLDOWN = 60, 3 * 86400, 3600
+RETRY_IN = re.compile(r"(\d+)\s*(second|sec|minute|min|hour|day)s?", re.I)
+UNIT = {"sec": 1, "second": 1, "min": 60, "minute": 60, "hour": 3600, "day": 86400}
+
+
+def retry_after_seconds(r) -> int:
+    """How long a registrar asked us to stay away: the Retry-After header, or
+    a phrase like "retry after 24 hours" in the answer; one hour if neither."""
+    v = (r.headers.get("retry-after") or "").strip()
+    secs = None
+    if v.isdigit():
+        secs = int(v)
+    else:
+        m = RETRY_IN.search(r.text or "")
+        if m:
+            secs = int(m.group(1)) * UNIT[m.group(2).lower()]
+    return max(MIN_COOLDOWN, min(MAX_COOLDOWN, secs if secs is not None else DEFAULT_COOLDOWN))
+
+
+def _rate_limited(r) -> bool:
+    if r.status == 429 or r.failed_status == 429:
+        return True
+    try:
+        d = r.json()
+    except ValueError:
+        return False
+    return isinstance(d, dict) and str(d.get("errorCode", "")) == "429"
+
+
 class RdapClient:
+    """RDAP lookups: the registry's record, then (for registrant details and
+    contacts) the registrar's.
+
+    Registrars rate limit, some for a day at a time. So registrar lookups can
+    be deferred (`defer_registrar`) and made later only for the domains whose
+    result they could change (`fetch_deferred`); a registrar that answers
+    429 is left alone until the time it names, across runs (the time is kept
+    in the cache), and its cached answers are used meanwhile; failed lookups
+    get a slower second try, then (`whois_fallback`) the registrar's WHOIS."""
+
     def __init__(self, http: Http):
         self.http = http
         self.bootstrap = Bootstrap(http)
         self._nets: list[Netblock] = []
-        self.registrar_failures: Counter[str] = Counter()  # registrar RDAP host -> failed lookups
-        self._retry: list[tuple[str, RdapInfo]] = []  # (registrar RDAP URL, info to complete) for retry_failed()
+        self.registrar_failures: Counter[str] = Counter()  # host -> lookups still without the registrar's data
+        self.failure_reasons: Counter[tuple[str, str]] = Counter()  # (host, reason) of failed lookups
+        self.defer_registrar = False
+        self.whois_fallback = False
+        self.registrar_lookups = 0  # registrar lookups attempted (cache hits included)
+        self.whois_recovered = 0
+        self._retry: list[tuple[str, RdapInfo, str]] = []  # (registrar URL, info to complete, domain)
+        self._deferred: dict[str, tuple[str, RdapInfo]] = {}  # domain -> (registrar URL, info)
+        self._cool: dict[str, float] = {}  # registrar host -> back off until (epoch seconds)
         self._ip_locks: dict[str, asyncio.Lock] = {}
 
+    # ------------------------------------------------------------- domains
     async def domain(self, domain: str) -> RdapInfo:
         info = RdapInfo()
         base = await self.bootstrap.domain_base(domain)
@@ -281,35 +345,61 @@ class RdapClient:
         if not isinstance(data, dict) or data.get("errorCode"):
             info.error = f"RDAP error {data.get('errorCode') if isinstance(data, dict) else ''}"
             return info
+        parse_domain(data, info, urlsplit(r.url).hostname or url)
         # The registrar's RDAP often carries registrant fields the registry lacks.
         for href in related_links(data, r.url)[:1]:
-            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=registrar_answer)
-            if rr.ok and registrar_answer(rr):
-                parse_domain(rr.json(), info, urlsplit(rr.url).hostname or href)
-            else:
-                self.registrar_failures[urlsplit(href).hostname or href] += 1
-                self._retry.append((href, info))
-        parse_domain(data, info, urlsplit(r.url).hostname or url)
+            if self.defer_registrar:
+                self._deferred[domain] = (href, info)
+            elif not await self._registrar(href, info):
+                self._retry.append((href, info, domain))
         return info
 
-    async def retry_failed(self, spacing: float = 1.0, per_host: int = 300) -> int:
-        """Ask the registrars that did not answer again, one request at a time
-        per registrar, `spacing` seconds apart: their RDAP servers often rate
-        limit bursts. Completes the RdapInfo objects in place (the fingerprints
-        hold them) and returns how many lookups succeeded."""
-        pending, self._retry = self._retry, []
-        by_host: dict[str, list[tuple[str, RdapInfo]]] = {}
-        for href, info in pending:
-            by_host.setdefault(urlsplit(href).hostname or href, []).append((href, info))
+    def deferred(self) -> set[str]:
+        return set(self._deferred)
 
-        async def one_host(host: str, items: list[tuple[str, RdapInfo]]) -> int:
-            done = 0
-            for i, (href, info) in enumerate(items[:per_host]):
-                if i:
+    async def fetch_deferred(self, domains, spacing: float = 0.25) -> int:
+        """Make the deferred registrar lookups for `domains`: one registrar
+        at a time per host, `spacing` seconds apart. Failures are queued for
+        retry_failed(). Returns how many lookups were made."""
+        by_host: dict[str, list[tuple[str, RdapInfo, str]]] = {}
+        for d in sorted(domains):
+            item = self._deferred.pop(d, None)
+            if item:
+                by_host.setdefault(urlsplit(item[0]).hostname or item[0], []).append((item[0], item[1], d))
+
+        async def one_host(items: list[tuple[str, RdapInfo, str]]) -> None:
+            for i, (href, info, d) in enumerate(items):
+                if i and spacing:
                     await asyncio.sleep(spacing)
-                rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=registrar_answer)
-                if rr.ok and registrar_answer(rr):
-                    parse_domain(rr.json(), info, urlsplit(rr.url).hostname or href)
+                if not await self._registrar(href, info):
+                    self._retry.append((href, info, d))
+
+        await asyncio.gather(*(one_host(items) for items in by_host.values()))
+        return sum(len(v) for v in by_host.values())
+
+    async def retry_failed(self, spacing: float = 1.0, per_host: int = 300) -> int:
+        """A slower second try for registrar lookups that failed, one request
+        at a time per registrar, `spacing` seconds apart; never for a registrar
+        we are backing off from. What still fails goes to the registrar's
+        WHOIS when `whois_fallback` is on. Completes the RdapInfo objects in
+        place (the fingerprints hold them); returns how many were recovered."""
+        pending, self._retry = self._retry, []
+        by_host: dict[str, list[tuple[str, RdapInfo, str]]] = {}
+        for item in pending:
+            by_host.setdefault(urlsplit(item[0]).hostname or item[0], []).append(item)
+
+        async def one_host(host: str, items: list[tuple[str, RdapInfo, str]]) -> int:
+            done = 0
+            for i, (href, info, d) in enumerate(items[:per_host]):
+                ok = False
+                if not self._cooling(host):
+                    if i and spacing:
+                        await asyncio.sleep(spacing)
+                    ok = await self._registrar(href, info, first=False)
+                if not ok and self.whois_fallback:
+                    ok = await self._whois(d, info)
+                    self.whois_recovered += ok
+                if ok:
                     self.registrar_failures[host] -= 1
                     done += 1
             if self.registrar_failures[host] <= 0:
@@ -318,6 +408,74 @@ class RdapClient:
 
         results = await asyncio.gather(*(one_host(h, items) for h, items in by_host.items()))
         return sum(results)
+
+    async def _registrar(self, href: str, info: RdapInfo, first: bool = True) -> bool:
+        """One registrar lookup into `info`. Returns True when its data arrived
+        (fresh, cached, or an older cached answer after a failed lookup)."""
+        host = urlsplit(href).hostname or href
+        if first:
+            self.registrar_lookups += 1
+        if self._cooling(host):
+            hit = self.http.peek(href)  # no request while backing off
+            if hit is not None and registrar_answer(hit):
+                parse_domain(hit.json(), info, host)
+                if hit.stale_age:
+                    self.http.stale_hosts[host] += 1
+                return True
+            self._fail(host, "backing off (rate limited)", first)
+            return False
+        rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=0, valid=registrar_answer)
+        if _rate_limited(rr):
+            self._cool_down(host, rr)
+        if rr.ok and registrar_answer(rr):
+            parse_domain(rr.json(), info, urlsplit(rr.url).hostname or host)
+            if rr.stale_age and first:
+                self.failure_reasons[(host, f"HTTP {rr.failed_status or 'no answer'}, older cached answer used")] += 1
+            return True
+        reason = "HTTP 429 (rate limited)" if _rate_limited(rr) else (
+            f"HTTP {rr.status}" if rr.status else (rr.error.split(":")[0] or "no answer"))
+        self._fail(host, reason, first)
+        return False
+
+    def _fail(self, host: str, reason: str, first: bool) -> None:
+        if first:
+            self.registrar_failures[host] += 1
+            self.failure_reasons[(host, reason)] += 1
+
+    def _cooling(self, host: str) -> bool:
+        until = self._cool.get(host)
+        if until is None:
+            saved = self.http.cache.get(COOLDOWN_KEY + host, 0)
+            until = float(saved.get("until", 0)) if isinstance(saved, dict) else 0.0
+            self._cool[host] = until
+        return until > time.time()
+
+    def _cool_down(self, host: str, r) -> None:
+        until = time.time() + retry_after_seconds(r)
+        if until > self._cool.get(host, 0):
+            self._cool[host] = until
+            self.http.cache.set(COOLDOWN_KEY + host, {"until": until})
+            log.info("registrar RDAP %s rate limited us; backing off until %s", host,
+                     time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
+
+    def cooldowns(self) -> dict[str, float]:
+        """Registrar hosts we are backing off from, with the time it ends."""
+        now = time.time()
+        return {h: u for h, u in self._cool.items() if u > now}
+
+    async def _whois(self, domain: str, info: RdapInfo) -> bool:
+        from .whois import registrar_whois
+
+        before = (info.registrant_org, info.registrant_region, len(info.contacts))
+        try:
+            got = await registrar_whois(domain, self.http.cache)
+        except Exception as e:  # noqa: BLE001 - a WHOIS problem must never sink the run
+            log.debug("whois fallback for %s failed: %s", domain, e)
+            return False
+        if got is None:
+            return False
+        merge_info(info, got)
+        return (info.registrant_org, info.registrant_region, len(info.contacts)) != before
 
     def _known_net(self, ip: str) -> Netblock | None:
         for n in self._nets:

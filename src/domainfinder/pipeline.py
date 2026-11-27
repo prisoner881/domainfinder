@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -21,7 +22,7 @@ from .orgnames import is_meaningful, same_org
 from .rootcheck import RootCheck, check_root
 from .sources import ALL_SOURCES, Source, SourceContext
 from .sources.crtsh import collect_org_hits, crtsh_json, seed_org_from_ct
-from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
+from .verify import Scorer, SeedProfile, channel_of, infra_channels, plausible_org_for_label, score_all
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ async def run(
     import_notes: list[str] | None = None,
     max_candidates: int = 3000,
     progress: Callable[[str, int, int], None] | None = None,
+    attested: list[tuple[str, str]] | None = None,
 ) -> RunReport:
     supplied = seed
     seed = registrable(seed) or seed
@@ -113,7 +115,7 @@ async def run(
     try:
         return await _run(seed, supplied, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
                           skip_sources or [], extra_candidates or [], imported_candidates or [],
-                          import_notes or [], max_candidates, progress)
+                          import_notes or [], max_candidates, progress, attested or [])
     finally:
         CURRENT.reset(token)
         if db is not None:
@@ -123,13 +125,18 @@ async def run(
 
 
 async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, only_sources, skip_sources,
-               extra_candidates, imported_candidates, import_notes, max_candidates, progress) -> RunReport:
+               extra_candidates, imported_candidates, import_notes, max_candidates, progress,
+               attested=()) -> RunReport:
     def tick(stage: str, done: int = 0, total: int = 0):
         if progress:
             progress(stage, done, total)
 
     tick("fingerprinting seed")
     seed_fp = await fingerprint(seed, collectors)
+    # From here on, registrar RDAP lookups wait until scoring shows which
+    # domains they could change (registrars rate limit, some for a day).
+    collectors.rdap.defer_registrar = True
+    collectors.rdap.whois_fallback = settings.whois
     ns_stats = {"checked": 0, "changed": 0}
     if seed_fp.ns:  # the seed's own set is what every candidate is compared with
         await refresh_ns(seed_fp, collectors.resolver, ns_stats)
@@ -212,14 +219,22 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         rd = registrable(d)
         if rd and rd != seed:
             merged.setdefault(rd, Candidate(domain=rd)).add_source("import", f"imported from {origin}")
+    # Domains the organization attests it owns: owned on its word, never cut
+    # by --max-candidates, and reference points for the others.
+    attested_set: set[str] = set()
+    for d, origin in attested:
+        rd = registrable(d)
+        if rd and rd != seed:
+            attested_set.add(rd)
+            merged.setdefault(rd, Candidate(domain=rd)).add_source("attested", f"attested by the organization ({origin})")
     ctx.notes[:0] = import_notes
     merged.pop(seed, None)
 
     cands = sorted(merged.values(), key=_priority)
     total = len(cands)
     if len(cands) > max_candidates:
-        given = [c for c in cands if {"manual", "import", "root-check"} & set(c.sources)]
-        found = [c for c in cands if not {"manual", "import", "root-check"} & set(c.sources)]
+        given = [c for c in cands if {"manual", "import", "root-check", "attested"} & set(c.sources)]
+        found = [c for c in cands if not {"manual", "import", "root-check", "attested"} & set(c.sources)]
         keep = max(0, max_candidates - len(given))
         ctx.notes.append(f"verifying {len(given)} given/imported + the first {keep} of {len(found)} discovered "
                          f"candidates (--max-candidates)")
@@ -232,7 +247,10 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         nonlocal done
         async with sem:
             try:
-                fp = await fingerprint(c.domain, collectors)
+                # A long attested list gets a light fingerprint (no website or
+                # TLS): the comparisons that use it are DNS, mail and network.
+                light = c.domain in attested_set and len(attested_set) > ATTESTED_FULL_LIMIT
+                fp = await fingerprint(c.domain, collectors, web=not light)
                 if ns_partial(fp.ns, seed_fp.ns):
                     await refresh_ns(fp, collectors.resolver, ns_stats)
             except Exception as e:
@@ -244,12 +262,17 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
 
     stage, stage_total = "verifying candidates", len(cands)
     items = list(await asyncio.gather(*(fp_one(c) for c in cands)))
-    profile = SeedProfile.build(seed_fp, org_names, brand_labels)
+    scoring_orgs = list(org_names)
+    if attested_set:
+        scoring_orgs += await attested_names(collectors, items, attested_set, org_names, ctx)
+    profile = SeedProfile.build(seed_fp, scoring_orgs, brand_labels)
     profile.ns_shared_override = ns_shared
     scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
                     ctx.ct_org_domains, ctx.subsidiary_names, ctx.shared_ns_domains, ctx.ct_cocerts)
-    await retry_registrars(collectors, ctx)
+    scorer.attested = attested_set
+    scorer.anchors = [fp for fp, _ in items if fp.domain in attested_set and fp.registered is not False]
     results = score_all(scorer, items)
+    results = await complete_registrars(collectors, scorer, items, results, tick)
     verified_count = len(cands)
 
     # Second pass, one hop out, all verified like any other candidate:
@@ -261,8 +284,11 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
 
     known = {c.domain for c in cands} | {seed}
     second: dict[str, Candidate] = {}
+    # No discovery from domains that are owned only on the organization's
+    # word: hundreds of attested domains would multiply the run.
+    hop_from = [r for r in results if not (r.domain in attested_set and set(r.sources) == {"attested"})]
     if settings.acquisitions and pseudo_on("acq-ct"):
-        names = acquisition_names(results, org_names)
+        names = acquisition_names(hop_from, org_names)
         for name, origin in names:
             hits: dict = {}
             for extra in ({"exclude": "expired"}, {}):
@@ -283,7 +309,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     use_csp = settings.csp_discovery and pseudo_on("csp")
     if not settings.csp_discovery:
         disabled["csp"] = "turned off (--no-csp)"
-    for c in hop_candidates(results, known, seed, use_csp=use_csp, use_certs=pseudo_on("cert-san"),
+    for c in hop_candidates(hop_from, known, seed, use_csp=use_csp, use_certs=pseudo_on("cert-san"),
                             use_redirects=pseudo_on("redirect-target")):
         if c.domain in second:
             for k, v in c.sources.items():
@@ -306,16 +332,14 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
             total += len(new)
             verified_count += len(picked)
     if second or scorer.ct:
-        await retry_registrars(collectors, ctx)
         results = score_all(scorer, items)
+        results = await complete_registrars(collectors, scorer, items, results, tick)
     if ns_stats["checked"]:
         ctx.notes.append(f"dns: {ns_stats['checked']} nameserver set(s) only partly matching the seed's re-read from "
                          f"the domains' own nameservers; {ns_stats['changed']} changed")
-    failed = collectors.rdap.registrar_failures
-    if failed:
-        ctx.notes.append("rdap: the registrar's RDAP did not answer for " + ", ".join(
-            f"{n} domain(s) at {host}" for host, n in failed.most_common(5))
-            + "; registry data only for those (registrant contacts may be missing)")
+    note = registrar_note(collectors.rdap)
+    if note:
+        ctx.notes.append(note)
     ctx.notes.append(cache_note(collectors.http))
     from .sources.crtsh_db import CURRENT
 
@@ -357,12 +381,87 @@ async def refresh_ns(fp: Fingerprint, resolver, stats: dict[str, int] | None = N
             stats["changed"] = stats.get("changed", 0) + 1
 
 
-async def retry_registrars(collectors, ctx) -> None:
-    """A slow second try for registrar RDAP lookups that failed (rate limits)."""
-    if collectors.rdap.registrar_failures:
-        n = sum(collectors.rdap.registrar_failures.values())
-        got = await collectors.rdap.retry_failed()
-        ctx.notes.append(f"rdap: {n} registrar lookup(s) failed at first; {got} answered on a slower second try")
+ATTESTED_FULL_LIMIT = 200  # above this many attested domains: light fingerprints, no registrar lookups
+
+
+async def attested_names(collectors, items, attested_set, org_names, ctx) -> list[str]:
+    """Registrant organization names on attested domains: names the
+    organization uses (a subsidiary, an acquisition's legal name). Taken from
+    registrations only: an attested site on a vendor's platform carries the
+    vendor's certificate, and its name must not become the organization's."""
+    from .data import load as load_data
+    from .orgnames import any_match
+
+    data = load_data()
+    if len(attested_set) <= ATTESTED_FULL_LIMIT:
+        await collectors.rdap.fetch_deferred(attested_set)
+    names: list[str] = []
+    for fp, _ in items:
+        n = fp.rdap.registrant_org if fp.domain in attested_set else ""
+        if (n and is_meaningful(n) and not data.is_proxy_registrant(n, fp.rdap.registrar)
+                and not data.is_brand_registrar(n) and not any_match(n, org_names + names)):
+            names.append(n)
+    note = f"attested: {len(attested_set)} domain(s) owned by the organization's word"
+    if len(attested_set) > ATTESTED_FULL_LIMIT:
+        note += (f"; more than {ATTESTED_FULL_LIMIT}, so fingerprinted without website/TLS and without "
+                 f"registrar lookups")
+    if names:
+        note += f"; organization name(s) from their registrations: {', '.join(names[:8])}"
+    ctx.notes.append(note)
+    return names[:20]
+
+
+def needs_registrar(r: Result) -> bool:
+    """Could the registrar's record (registrant, contacts) change this result?
+
+    Not for a domain already owned through two independent infrastructure
+    matches: registrant details cannot change that, and even another
+    organization's name is overridden there. Not for a domain whose only
+    evidence is its name: a registrant match could lift it to needs review at
+    most. Held domains always: their classification rests on the registrant
+    region."""
+    if r.classification is Classification.OWNED and len(infra_channels(r.evidence)) >= 2:
+        return False
+    if r.status == "held/inactive":
+        return True
+    return any(e.points > 0 and channel_of(e.kind) not in ("name", "corroboration") for e in r.evidence)
+
+
+async def complete_registrars(collectors, scorer, items, results, tick=None):
+    """Make the deferred registrar lookups that could matter, retry failures
+    slowly (then WHOIS), and score again if anything arrived."""
+    rdap = collectors.rdap
+    need = {r.domain for r in results if needs_registrar(r)} & rdap.deferred()
+    if not need and not rdap._retry:
+        return results
+    if tick:
+        tick("registrar lookups", 0, len(need))
+    await rdap.fetch_deferred(need)
+    if rdap._retry:
+        await rdap.retry_failed()
+    return score_all(scorer, items)
+
+
+def registrar_note(rdap) -> str:
+    """Registrar lookups made, skipped and failed (with why), back-offs."""
+    if not (rdap.registrar_lookups or rdap.deferred()):
+        return ""
+    note = (f"rdap: {rdap.registrar_lookups} registrar lookup(s) made, {len(rdap.deferred())} not needed "
+            f"(result already settled, or name evidence only)")
+    reasons: dict[str, list[str]] = {}
+    for (host, why), n in rdap.failure_reasons.most_common():
+        reasons.setdefault(host, []).append(f"{why} ×{n}")
+    if reasons:
+        note += "; failed: " + "; ".join(f"{h} ({', '.join(r)})" for h, r in list(reasons.items())[:6])
+    cool = rdap.cooldowns()
+    if cool:
+        note += "; backing off: " + ", ".join(
+            f"{h} until {time.strftime('%Y-%m-%d %H:%M', time.localtime(u))}" for h, u in sorted(cool.items()))
+    if rdap.registrar_failures:
+        note += f"; still without registrar data: {sum(rdap.registrar_failures.values())}"
+    if rdap.whois_recovered:
+        note += f"; {rdap.whois_recovered} completed from the registrar's WHOIS"
+    return note
 
 
 def cache_note(http) -> str:

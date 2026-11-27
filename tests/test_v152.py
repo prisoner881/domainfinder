@@ -20,14 +20,14 @@ async def test_failed_registrar_lookup_is_retried_and_completes_the_same_record(
         "objectClassName": "domain", "ldhName": "X-ZDP.COM",
         "links": [{"rel": "related", "href": "https://rdap.registrar.example/domain/X-ZDP.COM"}]})
     reg = respx.get("https://rdap.registrar.example/domain/X-ZDP.COM").mock(
-        side_effect=[httpx.Response(429)] * 3 + [httpx.Response(200, json=REGISTRANT)])
+        side_effect=[httpx.Response(503), httpx.Response(200, json=REGISTRANT)])
     http = Http(retries=1)
     c = RdapClient(http)
     info = await c.domain("x-zdp.com")
     assert info.contacts == [] and c.registrar_failures == {"rdap.registrar.example": 1}
     assert await c.retry_failed(spacing=0) == 1
     assert info.contacts == [{"role": "registrant", "email": "dns@zdp.com"}]  # the fingerprint's own object
-    assert not c.registrar_failures and reg.call_count == 4
+    assert not c.registrar_failures and reg.call_count == 2
     assert await c.retry_failed(spacing=0) == 0  # nothing left to retry
     await http.aclose()
 

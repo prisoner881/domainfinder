@@ -63,7 +63,7 @@ async def test_client_follows_related_link_and_caches_networks():
     c = RdapClient(http)
     info = await c.domain("zdp.com")
     assert info.region_key() == "OH, US"
-    assert info.sources == ["rdap.markmonitor.com", "rdap.verisign.com"]
+    assert info.sources == ["rdap.verisign.com", "rdap.markmonitor.com"]
     nb = await c.ip("198.18.93.56")
     nb2 = await c.ip("198.18.1.1")  # same /16: answered from memory
     assert nb.name == nb2.name == "ZDP-CORENET"

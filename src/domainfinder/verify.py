@@ -216,6 +216,11 @@ class Scorer:
         # public-key fingerprint → domain, for verified domains' certificates
         # (filled by score_all between rounds)
         self.known_keys: dict[str, str] = {}
+        # Domains the organization attests it owns: always owned, verified from
+        # the first round, and their fingerprints are reference points
+        # (anchors) besides the seed's. Discovery never runs from them.
+        self.attested: set[str] = set()
+        self.anchors: list[Fingerprint] = []
 
     # ------------------------------------------------------------------ util
     def _ours(self, domain: str | None, verified: set[str]) -> bool:
@@ -325,6 +330,8 @@ class Scorer:
         if toks:
             t = sorted(toks)[0]
             add("token", S, f"same TXT verification token {t[:60]}")
+
+        self._anchor_evidence(fp, ev, add)
 
         # --- organization names -------------------------------------------------
         if fp.cert.subject_org and is_meaningful(fp.cert.subject_org):
@@ -756,6 +763,76 @@ class Scorer:
         return (f"likely a site the organization runs for a client: its certificate, but registered by someone else "
                 f"at {cr.registrar} (the seed uses {sr.registrar}) with no DNS, network or registration link")
 
+    def _attested(self, fp: Fingerprint, ev: list[Evidence], flags: dict):
+        """The organization's word makes it owned; what the evidence says
+        against it becomes a warning (typos, lapsed or sold domains)."""
+        warn = []
+        if fp.registered is False:
+            warn.append("the domain is not registered (anyone could register it)")
+        elif flags.get("parked"):
+            warn.append("it is parked or offered for sale (lapsed or sold?)")
+        elif flags.get("different_org") and any(e.kind.startswith("different_org") and e.points < 0 for e in ev):
+            warn.append(f"its registration or certificate names {flags['different_org']}")
+        ev = ([Evidence("attested", Strength.STRONG, 0, "attested by the organization")] + ev
+              + [Evidence("attested_warning", Strength.INFO, 0, "attested, but " + w) for w in warn])
+        return ev, 100, Classification.OWNED
+
+    def _anchor_evidence(self, fp: Fingerprint, ev: list[Evidence], add) -> None:
+        """The infrastructure comparisons made with the seed, made with each
+        attested domain too, when the seed gave no such evidence: same
+        dedicated nameservers, mail tenant, verification token, network and
+        analytics ID. The evidence names the attested domain."""
+        if not self.anchors:
+            return
+        have = {e.kind for e in ev}
+        page_own = own_page(fp.web, fp.domain)
+        for a in self.anchors:
+            if a.domain == fp.domain:
+                continue
+            if not have & {"ns_set", "namespace"}:
+                m = self._ns_match(set(a.ns), set(fp.ns))
+                if m:
+                    add("ns_set", Strength.STRONG, f"{m} as attested {a.domain}")
+                    have.add("ns_set")
+            if "mail_tenant" not in have:
+                t = set(a.mail_tenants) & set(fp.mail_tenants)
+                if t:
+                    add("mail_tenant", Strength.STRONG, f"same mail tenant {sorted(t)[0]} as attested {a.domain}")
+                    have.add("mail_tenant")
+            if "token" not in have:
+                t = set(a.verification_tokens) & set(fp.verification_tokens)
+                if t:
+                    add("token", Strength.STRONG, f"same TXT verification token {sorted(t)[0][:60]} as attested {a.domain}")
+                    have.add("token")
+            if "netblock" not in have:
+                for nb in fp.netblocks:
+                    same = any(nb.handle and nb.handle == x.handle and nb.start == x.start for x in a.netblocks)
+                    if same and not self.data.is_shared_hosting_org(nb.org):
+                        add("netblock", Strength.STRONG, f"IP in {nb.label()}, the network of attested {a.domain}")
+                        have.add("netblock")
+                        break
+            if "analytics" not in have and page_own and own_page(a.web, a.domain):
+                ids = set(a.web.analytics_ids) & set(fp.web.analytics_ids)
+                if ids:
+                    add("analytics", Strength.MEDIUM, f"same analytics/tag ID {sorted(ids)[0]} as attested {a.domain}")
+                    have.add("analytics")
+
+    def _ns_match(self, ref: set[str], cand: set[str]) -> str:
+        """A dedicated or whole managed-DNS nameserver set shared with `ref`
+        (the same rules as the comparison with the seed's set)."""
+        inter = ref & cand
+        if not inter or self.seed.ns_shared_override:
+            return ""
+        j = jaccard(ref, cand)
+        pooled = {h for h in inter if registrable(h) in self.shared_ns_domains}
+        own = {h for h in inter if not self.data.is_shared_dns(h) and not self.data.is_selectable_dns(h)} - pooled
+        sel = {h for h in inter if self.data.is_selectable_dns(h)} | pooled
+        if own and j >= 0.5:
+            return f"same dedicated nameservers ({len(inter)}/{len(ref)} shared, e.g. {sorted(own)[0]})"
+        if len(sel) >= 3 and j >= 0.75:
+            return f"same managed-DNS nameserver set ({len(inter)}/{len(ref)} hosts, Jaccard {j:.2f})"
+        return ""
+
     def status(self, fp: Fingerprint, flags: dict) -> str:
         if fp.registered is False:
             return "unregistered"
@@ -778,6 +855,8 @@ class Scorer:
     def score(self, fp: Fingerprint, cand: Candidate, verified: set[str]) -> Result:
         ev, flags = self.evidence(fp, cand, verified)
         score, cls, status = self.classify(fp, ev, flags)
+        if fp.domain in self.attested:
+            ev, score, cls = self._attested(fp, ev, flags)
         return Result(
             domain=fp.domain, score=score, classification=cls, status=status,
             evidence=ev, sources=dict(cand.sources), fingerprint=fp,
@@ -790,11 +869,11 @@ def score_all(scorer: Scorer, items: list[tuple[Fingerprint, Candidate]], max_ro
     "Redirects to a verified domain" and "NS under a verified domain" only
     become visible once the target itself is verified.
     """
-    verified: set[str] = set()
+    verified: set[str] = set(scorer.attested)  # attested domains count as verified from the start
     results: list[Result] = []
     for _ in range(max_rounds):
         results = [scorer.score(fp, c, verified - {fp.domain}) for fp, c in items]
-        now = {r.domain for r in results if r.classification is Classification.OWNED}
+        now = {r.domain for r in results if r.classification is Classification.OWNED} | scorer.attested
         if now == verified:
             break
         verified = now

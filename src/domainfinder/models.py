@@ -18,6 +18,8 @@ class Strength(str, Enum):
 # Notes that say why a high score was held back from the main list. They carry
 # no points but are always shown (table, CSV), so the reason is never hidden.
 CAP_NOTES = ("registration_only", "no_control", "redirect_only", "operated_for_client")
+# Warnings about attested domains (unregistered, for sale, another registrant).
+WARN_NOTES = ("attested_warning",)
 
 
 @dataclass
@@ -175,7 +177,7 @@ class Result:
             (e for e in self.evidence if e.strength is not Strength.INFO),
             key=lambda e: -abs(e.points),
         )
-        caps = [e.detail for e in self.evidence if e.kind in CAP_NOTES]
+        caps = [e.detail for e in self.evidence if e.kind in CAP_NOTES + WARN_NOTES]
         return "; ".join(caps + [e.detail for e in ev[:max_items]])
 
     def to_dict(self, include_fingerprint: bool = False, idn: str = "unicode") -> dict[str, Any]:

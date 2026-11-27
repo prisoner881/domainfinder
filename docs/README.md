@@ -8,7 +8,7 @@ domainfinder example.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.5.3** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.5.3`. `domainfinder --version` prints that line too.
+Current version: **1.6.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.6.0`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -44,6 +44,7 @@ domainfinder example.com -v                      # also show rejected domains, s
 domainfinder example.com --org "Example Corporation, Inc."   # set the legal name yourself
 domainfinder example.com --candidate example-labs.com  # verify extra domains you already suspect
 domainfinder example.com --import found.csv      # also verify domains found by other processes
+domainfinder example.com --attested owned.txt     # domains the organization states it owns
 domainfinder --list-sources                  # which sources are on, and why others are off
 ```
 
@@ -99,6 +100,19 @@ cat found.csv
 example-world.de, exampleproduct.com
 https://www.acquired-example.com/about
 domainfinder example.com --import found.csv
+```
+
+### Attested domains
+
+`--attested FILE` (same format as `--import`; `-` reads standard input; repeatable) and `--attested-domain` (comma-separated lists allowed) take domains **the organization itself states it owns**. They are canonical:
+
+* **Always owned**, with source `attested` and the evidence item "attested by the organization", whatever the technical evidence says, and never dropped by `--max-candidates`.
+* **Contradictions become warnings, not reclassification.** Organization-supplied lists contain typos, lapsed registrations and domains sold long ago. An attested domain that is not registered, is parked or offered for sale, or whose registration or certificate names another organization stays owned, with a `warning: …` in the CSV evidence (an unregistered attested domain is worth knowing about: anyone could register it).
+* **Reference points.** Links to attested domains count from the first round like links to the seed (a redirect to one, nameservers under one, a certificate covering one). Candidates are also compared with each attested domain's dedicated nameserver set, mail tenant, verification tokens, network and analytics ID, with the same shared-infrastructure guards; the evidence names the attested domain ("same mail tenant … as attested example-acquired.com"). Registrant organization names on attested domains count as the organization's names (taken from registrations only, never from certificates, which may be a vendor's).
+* **No discovery from them.** Attested domains are not searched outward (no CSP, certificate or redirect hops, no acquisition-name searches), and domains found through them still need their own evidence: an organization may attest hundreds or thousands of domains. Above 200 attested domains they are fingerprinted without website and TLS checks and without registrar lookups.
+
+```
+domainfinder example.com --attested owned.txt --attested-domain example-acquired.com
 ```
 
 ### Internationalized domain names
@@ -297,6 +311,15 @@ Each file has one entry per line, and `#` starts a comment.
 * The User-Agent identifies the tool. Each host gets its own concurrency limit and request spacing (crt.sh: 2 at a time, 1 s apart). On 429/5xx the tool backs off exponentially and honours `Retry-After` (capped at 60 s).
 * Answers from external sources are cached in one SQLite file, `domainfinder-cache.sqlite`, in the directory you run the tool from. See [Cache](#cache).
 
+### Registrar lookups and rate limits
+
+RDAP is asked twice per domain: the registry (who the registrar is) and the registrar (registrant organization, region, contacts). Registrars rate limit, some for a day at a time (one answered "Too many requests! Please retry after 24 hours!" after repeated large runs). So:
+
+* **Registrar lookups are made only where they can change a result.** Not for a domain already owned through two independent infrastructure matches, and not for a domain whose only evidence is its name (a registrant match could lift it to *needs review* at most). Held domains and everything in between still get them. Rejected name-only domains therefore show less registration detail.
+* **A registrar that answers 429 is left alone** until the time it names (Retry-After, or "retry after N hours"; one hour if neither), for the rest of the run and for later runs (the time is kept in the cache). Its cached answers are used meanwhile.
+* **Failed lookups get a slower second try**, then the registrar's **WHOIS** (port 43): the registry's WHOIS names the registrar's WHOIS server, whose answer carries the same fields (`--no-whois` turns this off).
+* The `-v` notes count lookups made and skipped, and say why the failed ones failed and until when the tool is backing off.
+
 ### Cache
 
 | Source | Fresh for | Why |
@@ -324,7 +347,7 @@ These two are deliberate. The main list is consumed automatically, so it uses on
 * **Domains of divested businesses stay on the list while the seller still controls them.** After a sale, the seller often keeps a business's domains registered, served and certified in its own name, typically while it runs systems for the buyer during a transition. The tool reports who controls a domain, not who owns the business, so these domains stay owned until the registration, DNS and certificates move to the buyer. Example: a payments processor still controls domains of three businesses it sold; one of them is registered to the seller and on its DNS, but already redirects to the buyer's new brand.
 
 * **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some.
-* **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
+* **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used for `.edu`, which has no RDAP, and as the fallback when a registrar's RDAP refuses (below); some networks block port 43, in which case those registrations are invisible too.
 * **Registrant data is usually redacted** to a region ("CA, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
 * **crt.sh is slow and flaky.** Its web API answers large queries with 502s and caps a result set at 10,000 rows. The tool queries crt.sh's public database first (50,000 rows per search) and falls back to the web API; web queries are retried, everything is cached, and failures show up under `-v` notes. Networks that block outbound port 5432 get the web API only.
 * **Live TLS evidence needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's. The tool notices (no CT timestamps) and skips live-certificate comparisons, saying so in the notes. The CT-log evidence (`crtsh-org`) still works.

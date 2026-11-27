@@ -5,6 +5,39 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.6.0 — 2026-11-27
+
+### Added
+- **Attested domains** (`--attested FILE`, `--attested-domain`): domains the
+  organization itself states it owns. Always owned (source `attested`),
+  whatever the evidence says; contradictions (not registered, parked or for
+  sale, another organization's registration or certificate) become
+  `warning: …` notes instead of reclassification. Links to attested domains
+  count from the first round like links to the seed, candidates are compared
+  with their dedicated nameservers, mail tenant, tokens, network and
+  analytics ID, and their registrant names count as the organization's.
+  No discovery runs from them; above 200 they get light fingerprints.
+- **WHOIS fallback for registrar data.** When a registrar's RDAP refuses, the
+  registrar's WHOIS server (named in the registry's WHOIS) is asked for the
+  registrant fields and contacts (`--no-whois` turns it off).
+
+### Changed
+- **Registrars that rate limit are left alone.** A 429 from a registrar's RDAP
+  stops all lookups there until the time it names ("retry after 24 hours";
+  Retry-After; one hour by default), for this run and later ones (kept in
+  the cache); cached answers are used meanwhile, and there is no second try.
+  In test runs one registrar blocked the user's address for a day after
+  repeated large runs, and every further request risked extending it.
+- **Registrar lookups only where they can change a result.** Not for domains
+  already owned through two independent infrastructure matches, nor for
+  domains with name evidence only; registry lookups are unchanged. This cuts
+  registrar lookups substantially on large organizations.
+- **Failures say why.** The `-v` note counts registrar lookups made and not
+  needed, and gives the reason per registrar ("HTTP 429 (rate limited) ×1,
+  backing off ×158") and the back-off end time.
+- The registry's record is now parsed before the registrar's; registrar data
+  fills what the registry lacks.
+
 ## 1.5.3 — 2026-11-27
 
 ### Fixed

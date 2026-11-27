@@ -48,6 +48,7 @@ class Response:
     error: str = ""
     cached: bool = False  # served from the on-disk cache, no request sent
     stale_age: float = 0.0  # > 0: an expired cached answer, used because the fresh lookup failed
+    failed_status: int = 0  # with stale_age: the status of the fresh lookup that failed (0: no answer)
 
     @property
     def ok(self) -> bool:
@@ -264,6 +265,17 @@ class Http:
             return resp
         return self._stale(key, url, resp) if stale_ok else resp
 
+    def peek(self, url: str) -> Response | None:
+        """The cached answer for a GET of `url`, fresh or stale (up to the
+        cache's stale limit), without sending a request."""
+        key = "GET " + str(httpx.URL(url))
+        hit = self.cache.get_stale(key)
+        if hit is None:
+            return None
+        r = Response.from_cache(hit[0])
+        r.stale_age = hit[1]
+        return r
+
     def _stale(self, key: str, url: str, fresh: Response) -> Response:
         """An expired cached answer for `key`, or `fresh` (the failed answer) if none."""
         hit = self.cache.get_stale(key)
@@ -272,6 +284,7 @@ class Http:
         value, age = hit
         r = Response.from_cache(value)
         r.stale_age = max(age, 1.0)
+        r.failed_status = fresh.status
         self.stale_hosts[urlsplit(url).hostname or url] += 1
         log.info("using a cached answer %.1f days old for %s (fresh lookup failed)", age / 86400, url)
         return r

@@ -42,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="import candidate domains found by other processes: comma- and/or newline-separated, "
                         "'#' comments allowed, '-' for stdin; each is verified like any discovered domain "
                         "(repeatable)")
+    p.add_argument("--attested", dest="attested_files", action="append", default=[], metavar="FILE",
+                   help="domains the organization itself states it owns (same format as --import, '-' for stdin): "
+                        "always listed as owned, and links to them count like links to the seed (repeatable)")
+    p.add_argument("--attested-domain", action="append", default=[], metavar="DOMAIN",
+                   help="a domain the organization states it owns; comma-separated lists allowed (repeatable)")
     p.add_argument("--sources", help="comma-separated list of sources to use (see --list-sources)")
     p.add_argument("--skip", default="", help="comma-separated list of sources to skip")
     p.add_argument("--no-hackertarget", action="store_true", help="do not use HackerTarget's free quota")
@@ -164,6 +169,22 @@ def main(argv: list[str] | None = None) -> int:
         import_notes.append(res.summary())
         err.print(res.summary())
 
+    attested: list[tuple[str, str]] = []
+    for value in args.attested_domain:
+        res = parse_domain_list(value, "--attested-domain", "attested")
+        attested += [(d, "--attested-domain") for d in res.domains]
+        for bad in res.invalid:
+            err.print(f"[yellow]--attested-domain: skipping '{bad}' (not a domain name)[/yellow]")
+    for path in args.attested_files:
+        try:
+            res = read_domain_file(path, "attested")
+        except OSError as e:
+            err.print(f"[red]--attested: cannot read {path}: {e.strerror or e}[/red]")
+            return 2
+        attested += [(d, res.source) for d in res.domains]
+        import_notes.append(res.summary())
+        err.print(res.summary())
+
     only = [s.strip() for s in args.sources.split(",")] if args.sources else None
     skip = [s.strip() for s in args.skip.split(",") if s.strip()]
 
@@ -183,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             supplied, settings, user_orgs=args.org, extra_brands=args.brand, only_sources=only,
             skip_sources=skip, extra_candidates=manual, imported_candidates=imported,
             import_notes=import_notes, max_candidates=args.max_candidates,
-            progress=progress,
+            progress=progress, attested=attested,
         ))
     except KeyboardInterrupt:
         err.print("[red]interrupted[/red]")
