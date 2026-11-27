@@ -8,9 +8,9 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.3** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.3` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.4** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.4` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
-Only free sources are used today. Paid providers (SecurityTrails, WhoisXML API, DomainTools) are built in as switched-off stubs. Each one turns on once its API key is configured.
+Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
 ## Results for `adp.com`
 
@@ -124,7 +124,7 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 | `hackertarget` | ✓ | Reverse NS (`findshareddns`). For managed-DNS pools it intersects several of the seed's NS hosts, which approximates "same NS set". Small daily quota; turn it off with `--no-hackertarget`. |
 | `viewdns` | free key | Reverse NS and reverse MX. Needs `VIEWDNS_API_KEY`. |
 | `securitytrails` | paid | Stub: reverse WHOIS / NS / MX, associated domains. |
-| `whoisxml` | paid | Stub: reverse WHOIS (current + historic), WHOIS history. |
+| `whoisxml` | free key / paid | Reverse WHOIS: domains whose registrant organization is *exactly* the seed's (plus punctuation variants), in current and historic WHOIS. A current match is strong evidence; a historic-only match is weak. See [WhoisXML reverse WHOIS](#whoisxml-reverse-whois). |
 | `domaintools` | paid | Stub: Iris reverse WHOIS, NS/IP/email pivots, passive DNS. |
 
 ### 3. Scoring
@@ -176,9 +176,18 @@ DOMAINTOOLS_API_USERNAME=...
 DOMAINTOOLS_API_KEY=...
 ```
 
-`domainfinder --list-sources` shows which providers are on. The paid classes in `src/domainfinder/sources/paid.py` are stubs today: each docstring lists the endpoints a full implementation would call. To implement one, fill in `candidates()`; for reverse-NS providers, also fill in `ns_usage()` so the shared-NS threshold works. Domains a source returns go through the same verification as every other candidate, so a paid source cannot add unverified domains. Keys are never logged, and `Settings` hides them from its `repr`. Follow each provider's terms on storing and redistributing data.
+`domainfinder --list-sources` shows which providers are on. SecurityTrails and DomainTools in `src/domainfinder/sources/paid.py` are stubs today: each docstring lists the endpoints a full implementation would call. To implement one, fill in `candidates()`; for reverse-NS providers, also fill in `ns_usage()` so the shared-NS threshold works. Domains a source returns go through the same verification as every other candidate, so a paid source cannot add unverified domains. Keys are never logged, and `Settings` hides them from its `repr`. Follow each provider's terms on storing and redistributing data.
 
 To add any other source, subclass `sources.base.Source` and list it in `sources/__init__.py`.
+
+### WhoisXML reverse WHOIS
+
+Sign up at whoisxmlapi.com (a free account includes 500 credits) and set `WHOISXML_API_KEY` in `.env`. The source then searches WHOIS for domains whose **registrant organization is exactly** one of the seed's organization names, plus small punctuation variants (`Inc.` / `Inc`, with or without the comma). Loose matches are not used: a generic name like "Global Payments" would pull in unrelated companies.
+
+* **Current WHOIS match**: strong evidence, the same as an RDAP registrant match. On its own it can put a domain on the main list. That matters for held domains whose only other link is the registrar, such as the MarkMonitor holding pages in the `adp.com` run.
+* **Historic-only match**: weak evidence. The domain was registered to the seed once, but may have been sold since (Broadridge's ex-ADP domains).
+* **Credits**: every search first runs a free *preview* (a count). The 1-credit *purchase* of the list (up to 10,000 domains) happens only when the count is above zero. Answers are cached for a week, so rerunning a seed costs nothing. The `-v` notes report what each search found and how many credits the run spent. By default, current and historic WHOIS are both searched, for up to two organization names × four variants. `--whoisxml-search current|historic` (or `DOMAINFINDER_WHOISXML_SEARCH`) limits that, and `DOMAINFINDER_WHOISXML_MAX_PAGES` (default 1) sets how many 10,000-domain pages a search may buy.
+* **Failures**: the key travels only in the request body; it is never put in a URL, the cache or a log, and is scrubbed from error messages. On an error (bad key, no credits left) the source stops and says why in the notes; the rest of the run carries on.
 
 ## Data files
 

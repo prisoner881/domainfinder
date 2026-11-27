@@ -7,7 +7,8 @@ from .cctld import CcTldSource, GTldSource
 from .crtsh import CrtshDomainSource, CrtshOrgSource
 from .edgar import EdgarSource
 from .links import SeedLinkSource
-from .paid import DomainToolsSource, SecurityTrailsSource, WhoisXmlSource
+from .paid import DomainToolsSource, SecurityTrailsSource
+from .whoisxml import WhoisXmlSource
 from .reverse_ns import HackerTargetSource, ViewDnsSource
 
 ALL_SOURCES: list[type[Source]] = [

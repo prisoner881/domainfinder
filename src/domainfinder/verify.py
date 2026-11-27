@@ -346,6 +346,8 @@ class Scorer:
                 add("seed_link", W, cand.sources["seed-links"])
         for h in cand.hints:
             ev.append(h)
+            if h.kind == "whois_org":  # an exact current registrant match is a registration match
+                flags["registration_match"] = True
         return ev, flags
 
     def _brand_org(self, org: str) -> bool:

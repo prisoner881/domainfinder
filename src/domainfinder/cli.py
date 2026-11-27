@@ -35,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all-tlds", action="store_true",
                    help="sweep the brand label across every TLD in IANA's list, not just the common ones "
                         "(about 1,400 lookups per brand label)")
+    p.add_argument("--whoisxml-search", choices=["current", "historic", "both"],
+                   help="WhoisXML reverse WHOIS: search current WHOIS, historic WHOIS, or both (default)")
     p.add_argument("--candidate", action="append", default=[],
                    help="also verify this domain; comma-separated lists allowed (repeatable)")
     p.add_argument("--import", dest="import_files", action="append", default=[], metavar="FILE",
@@ -90,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         settings.whois = False
     if args.all_tlds:
         settings.all_tlds = True
+    if args.whoisxml_search:
+        settings.whoisxml_search = args.whoisxml_search
     if args.no_cache:
         settings.use_cache = False
     if args.cache_ttl is not None:

@@ -3,6 +3,21 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.4 — 2026-11-27
+
+### Added
+- WhoisXML API reverse WHOIS (`whoisxml` source), active when
+  `WHOISXML_API_KEY` is set (a free account includes 500 credits). It finds
+  domains whose registrant organization is exactly one of the seed's
+  organization names (plus punctuation variants), in current and historic
+  WHOIS. A current match is strong evidence (like an RDAP registrant match);
+  a historic-only match is weak. Credit-thrifty: a free preview first, a
+  1-credit purchase only when the preview finds domains, a week-long cache,
+  and one 10,000-domain page per search by default.
+  `--whoisxml-search current|historic|both` and
+  `DOMAINFINDER_WHOISXML_MAX_PAGES` control the searches.
+- HTTP layer: cached JSON POST requests (the cache key excludes secrets).
+
 ## 0.9.3 — 2026-11-27
 
 ### Changed

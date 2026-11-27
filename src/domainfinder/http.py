@@ -42,6 +42,7 @@ class Response:
     text: str = ""
     headers: dict[str, str] = field(default_factory=dict)
     error: str = ""
+    cached: bool = False  # served from the on-disk cache, no request sent
 
     @property
     def ok(self) -> bool:
@@ -57,7 +58,7 @@ class Response:
 
     @classmethod
     def from_cache(cls, d: dict[str, Any]) -> "Response":
-        return cls(status=d["status"], url=d["url"], text=d.get("text", ""), headers=d.get("headers", {}))
+        return cls(status=d["status"], url=d["url"], text=d.get("text", ""), headers=d.get("headers", {}), cached=True)
 
 
 @dataclass
@@ -160,8 +161,10 @@ class Http:
         retries: int | None = None,
         max_bytes: int = 20_000_000,
         web: bool = False,
+        json_body: Any = None,
     ) -> Response:
         host = urlsplit(url).hostname or ""
+        method = "GET" if json_body is None else "POST"
         client = self._web if web else self._client
         attempts = (self.retries if retries is None else retries) + 1
         last = Response(status=0, url=url, error="not attempted")
@@ -170,7 +173,7 @@ class Http:
             async with self._gate(host):
                 self.stats[host] = self.stats.get(host, 0) + 1
                 try:
-                    req = client.build_request("GET", url, params=params, headers=headers,
+                    req = client.build_request(method, url, params=params, headers=headers, json=json_body,
                                                timeout=timeout or (None if web else self.timeout))
                     resp = await client.send(req, stream=True)
                     try:
@@ -220,6 +223,31 @@ class Http:
         resp = await self._request(url, params=params, headers=headers, timeout=timeout, retries=retries)
         cacheable = (301, 302, 303, 307, 308, 404) if cache_404 else (301, 302, 303, 307, 308)
         if resp.status and (resp.ok or resp.status in cacheable or cache_errors):
+            self.cache.set(key, resp.to_cache())
+        return resp
+
+    async def post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        cache_payload: dict[str, Any] | None = None,
+        ttl: int | None = None,
+        timeout: float | None = None,
+        retries: int | None = None,
+    ) -> Response:
+        """POST a JSON body; successful answers are cached by URL + `cache_payload`
+        (pass the payload *without* secrets, so keys never reach the cache)."""
+        import json as _json
+
+        key = None
+        if cache_payload is not None:
+            key = "POST " + url + " " + _json.dumps(cache_payload, sort_keys=True)
+            cached = self.cache.get(key, ttl)
+            if cached is not None:
+                return Response.from_cache(cached)
+        resp = await self._request(url, json_body=payload, timeout=timeout, retries=retries)
+        if key and resp.ok:
             self.cache.set(key, resp.to_cache())
         return resp
 

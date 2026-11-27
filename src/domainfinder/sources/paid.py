@@ -52,24 +52,6 @@ class SecurityTrailsSource(_PaidStub):
         return self.settings.securitytrails_key
 
 
-class WhoisXmlSource(_PaidStub):
-    """WhoisXML API (https://reverse-whois.whoisxmlapi.com).
-
-    Planned calls:
-      * POST https://reverse-whois.whoisxmlapi.com/api/v2
-        {"apiKey": KEY, "searchType": "current"|"historic",
-         "basicSearchTerms": {"include": [ORG]}}                         reverse WHOIS
-      * GET  https://whois-history.whoisxmlapi.com/api/v1?domainName=D    WHOIS history
-    """
-
-    name = "whoisxml"
-    description = "WhoisXML API: reverse WHOIS (current + historic), WHOIS history (paid)"
-    key_env = "WHOISXML_API_KEY"
-
-    def _key(self) -> str:
-        return self.settings.whoisxml_key
-
-
 class DomainToolsSource(_PaidStub):
     """DomainTools Iris Investigate (https://www.domaintools.com/resources/api-documentation/).
 
