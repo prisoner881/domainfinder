@@ -43,6 +43,10 @@ WEIGHTS = {
     "spf_shared": 20,
     "soa_rname": 25,
     "registrar_region": 10,
+    "whois_email": 50,
+    "whois_email_same": 25,
+    "whois_phone": 25,
+    "whois_street": 25,
     "held_brand": 55,
     "held": 40,
     "held_brand_registrar": 35,
@@ -62,6 +66,14 @@ WEIGHTS = {
 # Strong evidence that comes from shared *infrastructure* (vs. paperwork).
 INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link",
                "ct_cocert", "dmarc_auth"}
+# Evidence that the organization controls the domain today: something its
+# operator has to set up and an outsider cannot (DNS zone, mail tenant, IP
+# space, verification token, certificates issued to the organization for the
+# name, authorized DMARC reports, a redirect into its sites) or the registry
+# naming the organization itself. "owned" requires at least one; registration
+# similarity alone (same registrar and region, brand in the name, certificates
+# that have expired, SEC subsidiary names) stops at "needs review".
+CONTROL_KINDS = INFRA_KINDS | {"cert_org", "ct_org_current", "rdap_org", "whois_org", "whois_email"}
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -359,6 +371,8 @@ class Scorer:
             else:
                 add("registrar_region", I, f"same registrar ({cr.registrar}) and region ({cr.region_key()}); mass-market registrar", 0)
 
+        self._whois_contacts(fp, verified, add)
+
         # --- holding page (registered, unused) ---------------------------------------
         held = bool(set(fp.a) & self.data.holding_ips) or (
             bool(fp.ns) and all(self.data.is_holding_ns(h) for h in fp.ns)
@@ -484,6 +498,48 @@ class Scorer:
                 parts.append(f"{self.seed.fp.domain}'s TLS certificate also covers it")
         return "; ".join(parts)
 
+    def _whois_contacts(self, fp: Fingerprint, verified: set[str], add) -> None:
+        """Published WHOIS/RDAP contact data points (most are redacted).
+
+        - A registrant/admin/tech/billing email at the seed's domain (or a
+          verified one): strong, and evidence of control. For gTLDs, ICANN
+          requires registrars to verify the registrant's email address, and an
+          outsider cannot receive mail at the seed's domain.
+        - The same email address, phone number or street address as the seed's
+          registrant/admin contact: medium. Supporting only: such details can be
+          shared (a law firm, an agency, a parent company's office).
+        The registrar's own contact data (registrar, abuse, reseller entities in
+        either record) is shared by all its customers and never counts; nor do
+        technical contacts for the "same as the seed" rules, as they are often
+        the registrar or DNS provider. Evidence text names no address or number.
+        """
+        sr, cr = self.seed.fp.rdap, fp.rdap
+        if not cr.contacts:
+            return
+        shared = set(sr.registrar_contacts) | set(cr.registrar_contacts)
+        for c in cr.contacts:
+            e = c.get("email")
+            if not e or e in shared:
+                continue
+            dom = registrable(e.split("@", 1)[1])
+            if dom and dom != fp.domain and self._ours(dom, verified):
+                add("whois_email", Strength.STRONG, f"WHOIS {c['role']} contact email is at {dom}")
+                break
+        owner_roles = ("registrant", "administrative")
+        mine = [c for c in cr.contacts if c["role"] in owner_roles]
+        seeds = [c for c in sr.contacts if c["role"] in owner_roles]
+        if not mine or not seeds:
+            return
+        for field, kind, what in (("email", "whois_email_same", "contact email address"),
+                                  ("phone", "whois_phone", "phone number"),
+                                  ("street", "whois_street", "street address")):
+            seed_values = {c[field] for c in seeds if c.get(field)} - shared
+            if field == "email":  # an email at the seed's domain is already strong evidence above
+                seed_values = {v for v in seed_values if not self._ours(registrable(v.split("@", 1)[1]), verified)}
+            hit = next((c for c in mine if c.get(field) in seed_values), None)
+            if hit:
+                add(kind, Strength.MEDIUM, f"same WHOIS {hit['role']} {what} as {self.seed.fp.domain}'s")
+
     def _brand_org(self, org: str) -> bool:
         """'ADP, Inc.' / 'ADP France' for brand 'adp': likely the seed's own
         entity under its short name. Neither a match nor a conflict — 'Groupe ADP'
@@ -542,7 +598,13 @@ class Scorer:
             return min(score, self.review - 1), Classification.REJECTED, status
 
         if score >= self.high and strong:
-            return score, Classification.OWNED, status
+            if any(e.kind in CONTROL_KINDS and e.points > 0 for e in ev):
+                return score, Classification.OWNED, status
+            # High score from registration similarity alone: probable, not
+            # proven. Automated consumers treat "owned" as near-certain.
+            ev.append(Evidence("registration_only", Strength.INFO, 0,
+                               "no evidence that the organization operates it (registration similarity only)"))
+            return min(score, self.high - 1), Classification.REVIEW, status
         if score >= self.review and (strong or any(e.strength is Strength.MEDIUM for e in ev)):
             return min(score, self.high - 1), Classification.REVIEW, status
         return min(score, self.review - 1), Classification.REJECTED, status

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from ..domains import clean
 from ..http import Http
+from ..contacts import contact, norm_email, norm_phone, norm_street
 from ..models import Netblock, RdapInfo
 
 log = logging.getLogger(__name__)
@@ -27,7 +28,8 @@ ACCEPT = {"Accept": "application/rdap+json, application/json"}
 
 def vcard_fields(entity: dict[str, Any]) -> dict[str, Any]:
     """Pull fn/org/adr out of a jCard, tolerating short or malformed arrays."""
-    out: dict[str, Any] = {"fn": "", "org": "", "region": "", "country": "", "kind": ""}
+    out: dict[str, Any] = {"fn": "", "org": "", "region": "", "country": "", "kind": "",
+                           "emails": [], "tels": [], "streets": []}
     va = entity.get("vcardArray")
     if not isinstance(va, list) or len(va) < 2 or not isinstance(va[1], list):
         return out
@@ -45,7 +47,19 @@ def vcard_fields(entity: dict[str, Any]) -> dict[str, Any]:
             out["org"] = str(value or "").strip()
         elif name == "kind" and isinstance(value, str):
             out["kind"] = value.lower()
-        elif name == "adr":
+        elif name == "email":
+            e = norm_email(value)
+            if e:
+                out["emails"].append(e)
+        elif name == "tel":
+            t = norm_phone(value if isinstance(value, str) else "")
+            if t:
+                out["tels"].append(t)
+        if name == "adr" and isinstance(value, list) and len(value) > 5:
+            st = norm_street(value[2], value[3], value[5])
+            if st:
+                out["streets"].append(st)
+        if name == "adr":
             cc = params.get("cc")
             if isinstance(cc, str):
                 out["country"] = cc.strip().upper()
@@ -85,6 +99,7 @@ def parse_domain(d: dict[str, Any], info: RdapInfo, source: str) -> None:
     for e in walk_entities(d):
         roles = _roles(e)
         v = vcard_fields(e)
+        _collect_contacts(info, roles, v)
         if "registrar" in roles:
             name = v["org"] or v["fn"]
             if name and not info.registrar:
@@ -116,6 +131,28 @@ def parse_domain(d: dict[str, Any], info: RdapInfo, source: str) -> None:
         info.nameservers = sorted(
             {clean(n.get("ldhName", "")) for n in d.get("nameservers") or [] if isinstance(n, dict) and n.get("ldhName")}
         )
+
+
+CONTACT_ROLES = ("registrant", "administrative", "technical", "billing")
+REGISTRAR_ROLES = ("registrar", "abuse", "reseller", "sponsor", "proxy")
+
+
+def _collect_contacts(info: RdapInfo, roles: list[str], v: dict[str, Any]) -> None:
+    values = v["emails"] + v["tels"] + v["streets"]
+    if not values:
+        return
+    if any(r in REGISTRAR_ROLES for r in roles):
+        for x in values:
+            if x not in info.registrar_contacts:
+                info.registrar_contacts.append(x)
+        return
+    # A privacy/proxy service's contact data is shared by all its customers.
+    if _placeholder(v["org"]) or _placeholder(v["fn"]):
+        return
+    for role in (r for r in CONTACT_ROLES if r in roles):
+        c = contact(role, (v["emails"] or [None])[0], (v["tels"] or [None])[0], (v["streets"] or [None])[0])
+        if c and c not in info.contacts:
+            info.contacts.append(c)
 
 
 def related_links(d: dict[str, Any], self_url: str) -> list[str]:

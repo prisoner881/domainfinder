@@ -5,6 +5,36 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.3.0 — 2026-11-27
+
+### Changed
+- **"High confidence" now requires evidence that the organization operates
+  the domain.** An audit of every ADP result scoring 70 or more found no
+  false positives among domains with control evidence (DNS on ADP's own
+  nameservers, mail tenant, netblock, certificate link, redirect, registrant
+  match), but about 16–20 owned results rested on registration similarity
+  alone: parked at MarkMonitor with an NJ registrant and the brand in the
+  name or old certificates. Those are probably ADP's but unproven, and a
+  higher threshold would also have dropped certain ccTLD domains. Such
+  results now stop at *needs review* (score capped at 69) with a
+  `registration_only` evidence note. Control kinds are listed in
+  `verify.py → CONTROL_KINDS`.
+
+### Added
+- **WHOIS/RDAP contact data points.** Contact emails, phone numbers and
+  street addresses are read from RDAP vCards (registrant, administrative,
+  technical, billing) and `.edu` WHOIS.
+  - A contact email at the seed's (or a verified) domain: strong (50) and
+    counts as control evidence; registrars verify registrant email, and an
+    outsider cannot receive mail at the seed's domain.
+  - The same email (off the seed's domain), phone or street address as the
+    seed's registrant/admin contacts: medium (25 each), supporting only.
+  - Registrar, abuse-desk, reseller and privacy-proxy contacts and
+    redaction placeholders are ignored; technical contacts are not compared
+    with the seed's. Evidence text names no email address or phone number.
+  - Most gTLD contacts are redacted, so these fire mainly for ccTLDs, `.edu`
+    and registrars that publish contacts.
+
 ## 1.2.4 — 2026-11-27
 
 ### Fixed

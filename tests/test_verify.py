@@ -95,12 +95,14 @@ def test_parked_but_registered_like_seed_needs_review():
     assert r.status == "parked"
 
 
-def test_markmonitor_holding_page_with_brand_is_owned_inactive():
+def test_markmonitor_holding_page_with_brand_is_review_not_owned():
+    # 1.3.0: registration similarity alone (registrar + region + brand) is
+    # probable, not proven, so it stops at review however high it scores.
     r = scorer().score(
         fp("adpresearch.com", a=["15.197.70.98"], ns=["ns1.markmonitor.com", "ns2.markmonitor.com"], rdap=rdap()),
         cand("adpresearch.com"), set())
-    assert r.classification is C.OWNED
-    assert r.status == "held/inactive"
+    assert r.classification is C.REVIEW and r.score == 69
+    assert r.status == "held/inactive" and "registration_only" in kinds(r)
 
 
 def test_holding_page_without_matching_registration_is_rejected():
@@ -180,11 +182,21 @@ def test_brand_named_registrant_is_not_a_conflict():
     assert "different_org_rdap" in kinds(r2) and r2.classification is C.REJECTED
 
 
-def test_held_domain_with_past_seed_certificates_is_owned():
+def test_held_domain_with_past_seed_certificates_is_review():
+    # Expired certificates show past control, not present control.
     ct = {"workscape.com": CtOrgHit(org=ORG, count=4, latest_not_after="2019-03-12", current=False)}
     r = scorer(ct_org_domains=ct).score(
         fp("workscape.com", a=["15.197.70.98"], rdap=rdap()), cand("workscape.com"), set())
-    assert r.classification is C.OWNED and r.status == "held/inactive"
+    assert r.classification is C.REVIEW and r.status == "held/inactive"
+
+
+def test_held_domain_with_a_current_seed_certificate_is_owned():
+    # A certificate valid today, issued to the organization for this name: the
+    # organization proved control of the domain to the CA recently.
+    ct = {"standoutnow.com": CtOrgHit(org=ORG, count=2, latest_not_after="2099-03-13", current=True)}
+    r = scorer(ct_org_domains=ct).score(
+        fp("standoutnow.com", a=["15.197.70.98"], rdap=rdap()), cand("standoutnow.com"), set())
+    assert r.classification is C.OWNED
 
 
 def test_held_brand_domain_with_other_region_goes_to_review():

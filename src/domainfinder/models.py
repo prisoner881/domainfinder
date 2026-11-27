@@ -66,6 +66,12 @@ class RdapInfo:
     nameservers: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
     error: str = ""
+    # Published contact data points of registrant/admin/tech/billing contacts:
+    # {"role", "email", "phone", "street"} (normalized; redacted values dropped).
+    contacts: list[dict[str, str]] = field(default_factory=list)
+    # The registrar's own emails/phones/addresses (registrar, abuse, reseller):
+    # shared by every customer, so never evidence.
+    registrar_contacts: list[str] = field(default_factory=list)
 
     def region_key(self) -> str:
         if not (self.registrant_region or self.registrant_country):

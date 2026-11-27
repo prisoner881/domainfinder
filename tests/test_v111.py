@@ -156,7 +156,7 @@ def test_held_domain_named_after_the_organization_counts_like_the_brand():
     r = s.score(fp("automaticdataprocessing.com", **held), cand("automaticdataprocessing.com"), set())
     assert "held_brand" in {e.kind for e in r.evidence}
     assert any("the seed organization's name" in e.detail for e in r.evidence)
-    assert r.classification is C.OWNED
+    assert r.classification is C.REVIEW  # 1.3.0: registration only, no control evidence
     # a name that merely contains part of the organization's name gets no such credit
     r = s.score(fp("dataprocessingsolutions.com", **held), cand("dataprocessingsolutions.com"), set())
     assert "held_brand" not in {e.kind for e in r.evidence} and r.classification is not C.OWNED
