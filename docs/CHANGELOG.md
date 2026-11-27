@@ -1,7 +1,23 @@
 # Changelog
 
-All notable changes to domainfinder. Versions follow `0.9.x`: every change
-gets the next patch number.
+All notable changes to domainfinder.
+
+## 1.0.0 — 2026-11-27
+
+First stable release.
+
+### Fixed
+- A redirect was counted more than once. The homepage collector follows
+  redirects, so a domain redirecting to the seed picked up the seed's own
+  analytics/tag ID and CSP header as if they were its own. The redirect (60)
+  plus the inherited tag (25) and CSP (35) put a typosquat that redirects to
+  the real site on the main list. Analytics IDs, CSP evidence and CSP
+  discovery now only use a page that belongs to the candidate's own domain.
+  A redirect alone reaches *needs review*; with one independent link
+  (registrar and region, nameservers, mail tenant, certificate, registrant)
+  it is owned. Some genuine domains whose only evidence is a redirect and
+  the brand name (e.g. country domains without public registration data)
+  move from owned to needs review.
 
 ## 0.9.10 — 2026-11-27
 

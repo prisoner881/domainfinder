@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from .collectors.dnsinfo import rname_domain
-from .collectors.web import chain_domains
+from .collectors.web import chain_domains, own_page
 from .data import load as load_data
 from .domains import is_subdomain_of, label, registrable
 from .models import Candidate, Classification, Evidence, Fingerprint, Netblock, Result, Strength
@@ -282,7 +282,12 @@ class Scorer:
         # A site's CSP lists what its operator trusts. Trusting the seed and
         # other verified domains links the operators; trusting just the seed can
         # also mean "customer embeds the vendor", hence the graded weights.
-        trusted = sorted({x for x in fp.web.csp_domains if x != d and self._ours(x, verified)})
+        # Page evidence counts only when the page is the candidate's own: after a
+        # redirect to the seed, the tags and CSP are the seed's page, and counting
+        # them would score the redirect twice (a typosquat redirecting to the real
+        # site would "inherit" its analytics ID and CSP).
+        page_own = own_page(fp.web, d)
+        trusted = sorted({x for x in fp.web.csp_domains if x != d and self._ours(x, verified)}) if page_own else []
         if len(trusted) >= 2:
             add("csp_trust", S, f"its Content-Security-Policy trusts {', '.join(trusted[:4])}")
         elif trusted and self._brand_in(d):
@@ -291,7 +296,7 @@ class Scorer:
             add("csp_trust_one", W, f"its Content-Security-Policy trusts {trusted[0]}")
 
         # --- web tags -------------------------------------------------------------
-        ids = set(seed.web.analytics_ids) & set(fp.web.analytics_ids)
+        ids = set(seed.web.analytics_ids) & set(fp.web.analytics_ids) if page_own else set()
         if ids:
             add("analytics", M, f"same analytics/tag ID {sorted(ids)[0]}")
 

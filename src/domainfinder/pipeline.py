@@ -12,6 +12,7 @@ from .collectors.rdap import RdapClient
 from .config import Settings
 from .dns import Resolver
 from .domains import label, registrable
+from .collectors.web import own_page
 from .fingerprint import Collectors, fingerprint
 from .http import Http
 from .models import Candidate, Classification, Fingerprint, Result
@@ -271,6 +272,8 @@ def csp_candidates(results: list[Result], known: set[str], seed: str) -> list[Ca
     for r in sorted(results, key=lambda r: (r.classification is not Classification.OWNED, r.domain)):
         if r.classification not in (Classification.OWNED, Classification.REVIEW) or r.fingerprint is None:
             continue
+        if not own_page(r.fingerprint.web, r.domain):
+            continue  # a redirecting domain's CSP is its target's
         for c in make_candidates(r.fingerprint.web.csp_domains, "csp", seed, f"named in the CSP of {r.domain}"):
             if c.domain not in known and c.domain not in found:
                 found[c.domain] = c

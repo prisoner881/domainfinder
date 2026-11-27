@@ -120,3 +120,13 @@ def chain_domains(info: WebInfo) -> list[str]:
         if rd and rd not in out:
             out.append(rd)
     return out
+
+
+def own_page(info: WebInfo, domain: str) -> bool:
+    """Did the page the collector ended on come from `domain` itself? After a
+    redirect to another domain, the page (its tags, CSP, links) is the target's
+    and is not evidence about `domain`."""
+    if not info.fetched:
+        return False
+    url = info.final_url or (info.chain[-1] if info.chain else "")
+    return registrable(urlsplit(url).hostname or "") == domain

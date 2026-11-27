@@ -8,13 +8,13 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.10** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 0.9.10`. `domainfinder --version` prints that line too.
+Current version: **1.0.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.0.0`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
 ## Results for `adp.com`
 
-[adp-sample-run.md](adp-sample-run.md) compares a run against the handoff's acceptance list. Free sources alone found 370 high-confidence domains, put 16 in needs review and rejected 105. Every expected-rejected domain was rejected (`adp.fr` = Aéroports de Paris, parked look-alikes, Broadridge's ex-ADP domains). The 33 expected-owned domains the free sources discovered were all classified owned.
+[adp-sample-run.md](adp-sample-run.md) compares a run made with an early 0.9 build against the handoff's acceptance list; later versions add sources and evidence, so current numbers differ somewhat. Free sources alone found 370 high-confidence domains, put 16 in needs review and rejected 105. Every expected-rejected domain was rejected (`adp.fr` = Aéroports de Paris, parked look-alikes, Broadridge's ex-ADP domains). The 33 expected-owned domains the free sources discovered were all classified owned.
 
 ## Install
 
@@ -179,9 +179,9 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | RDAP registrant org matches | strong | 60 |
 | CT: a current certificate with `O=` the seed's org | strong | 45 |
 | CT: only expired certificates with that `O=` (divested? e.g. broadridge.com) | weak | 15 |
-| The candidate's own Content-Security-Policy trusts two or more domains that are the seed or already verified | strong | 50 |
+| The candidate's own Content-Security-Policy (from its own page) trusts two or more domains that are the seed or already verified | strong | 50 |
 | Its CSP trusts only the seed, and the name carries the brand / and it doesn't | medium / weak | 35 / 10 |
-| Same analytics/tag ID | medium | 25 |
+| Same analytics/tag ID (on the candidate's own page) | medium | 25 |
 | SPF includes the seed's own include / a shared org-specific include | medium | 35 / 20 |
 | SOA contact at the seed's domain | medium | 25 |
 | Registrar holding page + same brand-protection registrar and registrant region + brand in name or past certificates in the seed's name | strong | 55 |
@@ -198,6 +198,7 @@ Guards that keep false positives out:
 
 * **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. Nameservers that aren't on either list are checked with reverse-NS data. One whose host serves 200 or more domains is treated as shared DNS infrastructure (a DNS provider, or a company's public DNS service such as Oracle's `oraclecloud.net`). Its domains aren't pulled in as candidates, "nameservers under it" doesn't count as evidence, and it can only match as a whole set. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
 * **Certificate links only count when they prove control.** A certificate counts only if it carries Certificate Transparency timestamps. Publicly trusted certificates do; certificates minted by a TLS-intercepting proxy normally don't. It must also cover the name it was served for, because a server's default certificate shown for a name that someone else's DNS points at it proves nothing. A certificate covering more than three other registrable domains counts only when at least half of them are the seed's or verified, which excludes CDN and hosting certificates shared by unrelated customers.
+* **A redirect is counted once.** Analytics IDs and the CSP header only count when they come from the candidate's own page. After a redirect to the seed, the page is the seed's, and counting its tags would score the redirect twice. A typosquat that redirects to the real site would otherwise inherit the real site's evidence. A redirect alone (60) reaches *needs review*; one independent link (registrar and region, nameservers, mail tenant, certificate, registrant) puts it on the main list.
 * **Weak evidence is never enough.** The main list needs at least one strong item.
 * **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
 * **Parked domains** go to *needs review* when their registration matches the seed's (a possible defensive registration), and are rejected otherwise.
