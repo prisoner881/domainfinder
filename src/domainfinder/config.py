@@ -53,9 +53,10 @@ class Settings:
     whoisxml_max_pages: int = 1  # purchase pages (10,000 domains, 1 credit each) per search
     wikidata: bool = True  # subsidiaries' websites from Wikidata
     acquisitions: bool = True  # CT search for acquired companies' names learned from owned domains
+    gleif: bool = True  # GLEIF: the organization's legal entity, its consolidated subsidiaries, its parent
     csp_discovery: bool = True  # one hop: domains in the CSP of owned/review domains become candidates
     all_tlds: bool = False  # gtld sweep over every TLD (IANA list) instead of the common ones
-    whois: bool = True  # port-43 WHOIS fallback for TLDs without RDAP (.edu)
+    whois: bool = True  # port-43 WHOIS: .edu (no RDAP) and the fallback when a registrar's RDAP refuses
     crtsh_timeout: float = 120.0
     crtsh_db: bool = True  # try crt.sh's public PostgreSQL database before its web API
     crtsh_db_limit: int = 50_000  # identities per database search (the web API stops at 10,000)
@@ -97,6 +98,7 @@ class Settings:
             crtsh_db_limit=max(1000, _int("DOMAINFINDER_CRTSH_DB_LIMIT", 50_000)),
             crtsh_db_timeout=float(max(30, _int("DOMAINFINDER_CRTSH_DB_TIMEOUT", 300))),
             acquisitions=_bool("DOMAINFINDER_ACQUISITIONS", True),
+            gleif=_bool("DOMAINFINDER_GLEIF", True),
             whoisxml_search=_env("DOMAINFINDER_WHOISXML_SEARCH", "both").lower() or "both",
             whoisxml_max_pages=_int("DOMAINFINDER_WHOISXML_MAX_PAGES", 1),
             idn="punycode" if _env("DOMAINFINDER_IDN").lower() == "punycode" else "unicode",

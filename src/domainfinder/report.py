@@ -25,6 +25,8 @@ def to_json(rep: RunReport, include_rejected: bool = True, include_fingerprints:
         "seed": display(rep.seed, idn),
         "seed_ascii": to_ascii(rep.seed),
         "root_check": rep.root_check.to_dict() if rep.root_check else None,
+        "parent_warning": rep.parent_warning() or None,
+        "gleif": rep.gleif,
         "idn_format": idn,
         "seed_fingerprint": {
             "org_names": rep.org_names,
@@ -62,15 +64,21 @@ def to_csv(rep: RunReport, include_rejected: bool = False, idn: str = "unicode")
     w = csv.writer(buf)
     w.writerow(CSV_FIELDS)
     classes = [Classification.OWNED, Classification.REVIEW] + ([Classification.REJECTED] if include_rejected else [])
-    # Repeated on every row so a wrong root cannot be missed in a spreadsheet.
-    warning = humanize(rep.root_check.headline(), idn) if rep.root_check and rep.root_check.flagged else ""
+    # Repeated on every row so a wrong root, or a root whose organization is
+    # itself a subsidiary, cannot be missed in a spreadsheet.
+    root = humanize(rep.root_check.headline(), idn) if rep.root_check and rep.root_check.flagged else ""
+    parent = humanize("PARENT ORGANIZATION: " + rep.parent_warning(), idn) if rep.parent_warning() else ""
+    warning = " | ".join(x for x in (root, parent) if x)
     if warning:
         # A first row for the supplied root itself, so the warning survives even
         # when no other domain qualifies for the file.
         rc = rep.root_check
-        w.writerow([display(rep.seed, idn), "seed", "", "supplied root domain (flagged)",
-                    f"suggested real root: {display(rc.suggested, idn)}" if rc.suggested else "",
-                    humanize(" | ".join(rc.reasons or rc.advisories), idn),
+        flagged = bool(rc and rc.flagged)
+        w.writerow([display(rep.seed, idn), "seed", "",
+                    "supplied root domain (flagged)" if flagged else "supplied root domain",
+                    f"suggested real root: {display(rc.suggested, idn)}" if flagged and rc.suggested else "",
+                    humanize(" | ".join(x for x in ((" | ".join(rc.reasons or rc.advisories)) if flagged else "",
+                                                     rep.parent_warning()) if x), idn),
                     to_ascii(rep.seed), to_unicode(rep.seed), warning])
     for cls in classes:
         for r in rep.by_class(cls):
@@ -121,12 +129,32 @@ def root_panel(rep: RunReport, idn: str = "unicode"):
                  style="red" if wrong else "yellow", expand=True, padding=(1, 2))
 
 
+def parent_panel(rep: RunReport, idn: str = "unicode"):
+    """A loud banner when GLEIF says the seed's organization is a subsidiary."""
+    from rich.panel import Panel
+    from rich.text import Text
+
+    msg = rep.parent_warning()
+    if not msg:
+        return None
+    g = rep.gleif or {}
+    p = g.get("ultimate_parent") or g.get("direct_parent")
+    title = f" !!! {display(rep.seed, idn).upper()} BELONGS TO A SUBSIDIARY OF {p['legal_name'].upper()} !!! "
+    body = Text()
+    body.append(humanize(msg, idn) + "\n", style="bold")
+    body.append(f"\nParent organization: {p['legal_name']} ({p['country'] or 'country unknown'}), LEI {p['lei']}\n",
+                style="bold")
+    body.append("To map the whole group, run the tool on the parent organization's root domain.\n")
+    return Panel(body, title=Text(title, style="bold black on yellow"), border_style="yellow", style="yellow",
+                 expand=True, padding=(1, 2))
+
+
 def print_table(rep: RunReport, console, *, include_review: bool = True, verbose: bool = False, min_score: int = 0,
                 idn: str = "unicode") -> None:
     from rich.table import Table
 
-    banner = root_panel(rep, idn)
-    if banner is not None:
+    banners = [b for b in (root_panel(rep, idn), parent_panel(rep, idn)) if b is not None]
+    for banner in banners:
         console.print(banner)
     fp = rep.seed_fingerprint
     console.print(f"[bold]Seed[/bold] {display(rep.seed, idn)}")
@@ -166,5 +194,5 @@ def print_table(rep: RunReport, console, *, include_review: bool = True, verbose
     off = {k: v for k, v in rep.sources_disabled.items() if v != "not selected"}
     if off:
         console.print("[dim]Disabled sources: " + "; ".join(f"{k} ({v})" for k, v in off.items()) + "[/dim]")
-    if banner is not None:  # repeated at the bottom: long tables push the top one off screen
+    for banner in banners:  # repeated at the bottom: long tables push the top ones off screen
         console.print(banner)

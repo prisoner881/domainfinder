@@ -8,7 +8,7 @@ domainfinder example.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.6.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.6.0`. `domainfinder --version` prints that line too.
+Current version: **1.7.0** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.7.0`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -101,6 +101,14 @@ example-world.de, exampleproduct.com
 https://www.acquired-example.com/about
 domainfinder example.com --import found.csv
 ```
+
+### Corporate family (GLEIF)
+
+The seed's organization is looked up in [GLEIF](https://www.gleif.org/), the global register of legal entities (free, no key; `--no-gleif` or `DOMAINFINDER_GLEIF=0` turns it off). GLEIF lists no domains, so it never finds any; it supplies names:
+
+* **The seed's legal entity**, accepted only on one exact legal-name match with the organization name the tool derived (certificate, registrant), legal-form suffixes aside ("Inc.", "LLC", but not "Group"); several entities with that name are separated by the seed's registrant country, and if that leaves more than one, GLEIF is not used.
+* **Its consolidated subsidiaries** ("ultimate children"), whose legal and other names count as the organization's names: a domain registered to, or certified for, one of them is a match instead of a conflict. GLEIF's coverage of subsidiaries is partial (a large group may list ten), and it lags on acquisitions, so a name GLEIF does not list is never held against a domain; it just gets no help. Names confirmed by GLEIF also get full weight in the acquisition certificate search.
+* **The family only goes down.** If GLEIF says the seed's organization is itself a subsidiary, the report says so loudly: a banner at the top and bottom of the table (also on stderr when the output goes to a file or JSON), `PARENT ORGANIZATION: …` in every CSV row's `root_warning` column with a first row for the seed, and `parent_warning` plus the `gleif` record in JSON. The parent and its other subsidiaries are not treated as the seed's organization; to map the whole group, run the tool on the parent's root domain.
 
 ### Attested domains
 

@@ -71,6 +71,9 @@ def test_review_notes_appear_in_csv_and_table():
         def by_class(self, cls):
             return [x for x in self.results if x.classification is cls]
 
+        def parent_warning(self):
+            return ""
+
     out = report.to_csv(Rep(), include_rejected=True)
     row = next(x for x in csv.DictReader(io.StringIO(out.lstrip("\\ufeff"))) if x["domain"] == "riverbendcu.org")
     assert row["evidence"].endswith("review: " + note)

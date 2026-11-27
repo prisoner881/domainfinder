@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .cache import CACHE_FILE, Cache
+from .collectors.gleif import seed_family
 from .collectors.rdap import RdapClient
 from .config import Settings
 from .dns import Resolver
@@ -18,6 +19,7 @@ from .collectors.web import chain_domains, own_page
 from .fingerprint import Collectors, fingerprint
 from .http import Http
 from .models import Candidate, Classification, Fingerprint, Result
+from .orgnames import any_match as any_match_name
 from .orgnames import is_meaningful, same_org
 from .rootcheck import RootCheck, check_root
 from .sources import ALL_SOURCES, Source, SourceContext
@@ -44,6 +46,21 @@ class RunReport:
     candidates_verified: int
     http_stats: dict[str, int] = field(default_factory=dict)
     root_check: RootCheck | None = None
+    gleif: dict | None = None  # the seed's legal entity, subsidiaries count, parents (GLEIF)
+
+    def parent_warning(self) -> str:
+        """Set when GLEIF says the seed's organization is itself a subsidiary."""
+        g = self.gleif or {}
+        p = g.get("ultimate_parent") or g.get("direct_parent")
+        if not p:
+            return ""
+        e = g["entity"]
+        direct = g.get("direct_parent")
+        via = (f" (directly owned by {direct['legal_name']})"
+               if direct and g.get("ultimate_parent") and direct["lei"] != g["ultimate_parent"]["lei"] else "")
+        return (f"{e['legal_name']}, the organization behind {self.seed}, is a subsidiary of {p['legal_name']} "
+                f"({p['country'] or 'country unknown'}, LEI {p['lei']}){via} according to GLEIF. These results cover "
+                f"{e['legal_name']} and its own subsidiaries only, not the parent or the parent's other subsidiaries.")
 
     def by_class(self, cls: Classification) -> list[Result]:
         return sorted(
@@ -157,11 +174,30 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         ct_orgs = await seed_org_from_ct(collectors.http, seed, settings.crtsh_timeout)
     org_names = derive_org_names(seed_fp, ct_orgs, user_orgs, brand)
     seed_fp.org_names = org_names
+    fam, gleif_note = None, ""
+    if settings.gleif and org_names:
+        tick("looking up the organization in GLEIF")
+        cc = seed_fp.rdap.registrant_country.strip()
+        try:
+            fam, why = await seed_family(collectors.http, org_names, cc if len(cc) == 2 else "")
+        except Exception as e:  # noqa: BLE001 - GLEIF is enrichment; it must never sink the run
+            log.debug("gleif lookup failed", exc_info=True)
+            fam, why = None, f"lookup failed: {type(e).__name__}"
+        if fam:
+            gleif_note = (f"gleif: {fam.entity.legal_name} (LEI {fam.entity.lei}); {len(fam.children)} consolidated "
+                          f"subsidiar{'y' if len(fam.children) == 1 else 'ies'} listed, whose names count as the "
+                          f"organization's")
+            if fam.parent():
+                gleif_note += f"; IT IS ITSELF A SUBSIDIARY OF {fam.parent().legal_name} (LEI {fam.parent().lei})"
+        else:
+            gleif_note = f"gleif: not used ({why})"
 
     ctx = SourceContext(seed=seed_fp, settings=settings, collectors=collectors,
                         org_names=org_names, brand_labels=brand_labels)
     if tls_note:
         ctx.notes.append(tls_note)
+    if gleif_note:
+        ctx.notes.append(gleif_note)
     root = check_root(supplied, seed_fp)
     if root.flagged:
         ctx.notes.insert(0, "root check: " + root.headline())
@@ -263,6 +299,12 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     stage, stage_total = "verifying candidates", len(cands)
     items = list(await asyncio.gather(*(fp_one(c) for c in cands)))
     scoring_orgs = list(org_names)
+    if fam:
+        from .orgnames import any_match
+
+        for n in fam.names():
+            if not any_match(n, scoring_orgs):
+                scoring_orgs.append(n)
     if attested_set:
         scoring_orgs += await attested_names(collectors, items, attested_set, org_names, ctx)
     profile = SeedProfile.build(seed_fp, scoring_orgs, brand_labels)
@@ -296,12 +338,19 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
                 if rows:
                     collect_org_hits(rows, [name], hits)
             hits.pop(seed, None)
+            # A name GLEIF lists in the organization's family is the
+            # organization's own: its certificates count in full. GLEIF lags on
+            # acquisitions, so a name it does not confirm is not rejected,
+            # only weighed as an acquired company's.
+            confirmed = bool(fam) and any_match_name(name, fam.names())
             for dom, hit in hits.items():
-                hit.acquired = origin
+                if not confirmed:
+                    hit.acquired = origin
                 scorer.ct.setdefault(dom, hit)  # evidence in the seed's own name wins
                 if dom not in known and dom not in second:
                     second[dom] = Candidate(domain=dom, sources={"acq-ct": f"certificate O={name} (name from {origin})"})
-            ctx.notes.append(f"acquisitions: CT search for {name!r} (named by owned {origin}): {len(hits)} domain(s)")
+            ctx.notes.append(f"acquisitions: CT search for {name!r} (named by owned {origin}"
+                             f"{'; a subsidiary according to GLEIF' if confirmed else ''}): {len(hits)} domain(s)")
         if names:
             used.append("acq-ct")
     elif not settings.acquisitions:
@@ -351,6 +400,10 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
         sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,
         candidates_total=total, candidates_verified=verified_count, http_stats=dict(collectors.http.stats),
         root_check=root,
+        gleif=({"entity": fam.entity.to_dict(), "subsidiaries": len(fam.children),
+                "direct_parent": fam.direct_parent.to_dict() if fam.direct_parent else None,
+                "ultimate_parent": fam.ultimate_parent.to_dict() if fam.ultimate_parent else None}
+               if fam else None),
     )
 
 

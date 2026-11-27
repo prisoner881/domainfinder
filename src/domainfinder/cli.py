@@ -56,7 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-tls", action="store_true", help="skip live TLS certificate checks")
     p.add_argument("--no-csp", action="store_true",
                    help="do not turn domains named in the CSP of owned/review domains into candidates")
-    p.add_argument("--no-whois", action="store_true", help="skip the port-43 WHOIS fallback (.edu)")
+    p.add_argument("--no-whois", action="store_true",
+                   help="skip port-43 WHOIS (.edu, and the fallback when a registrar's RDAP refuses)")
+    p.add_argument("--no-gleif", action="store_true",
+                   help="do not look up the organization's legal entity, subsidiaries and parent in GLEIF")
     p.add_argument("--no-crtsh-db", action="store_true",
                    help="query crt.sh through its web API only (default: its public database first, port 5432)")
     p.add_argument("--no-cache", action="store_true", help="ignore and do not write the on-disk cache")
@@ -104,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         settings.dns_mode = args.dns
     if args.no_tls:
         settings.tls_check = False
+    if args.no_gleif:
+        settings.gleif = False
     if args.no_whois:
         settings.whois = False
     if args.no_crtsh_db:
@@ -224,11 +229,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print_table(rep, out, include_review=args.include_review, verbose=args.verbose, idn=settings.idn)
 
-    from .report import root_panel
+    from .report import parent_panel, root_panel
 
-    banner = root_panel(rep, settings.idn)
-    if banner is not None and banner_to_stderr(args.json, out.is_terminal):
-        err.print(banner)
+    for banner in (root_panel(rep, settings.idn), parent_panel(rep, settings.idn)):
+        if banner is not None and banner_to_stderr(args.json, out.is_terminal):
+            err.print(banner)
 
     if args.output:
         suffix = args.output.suffix.lower()

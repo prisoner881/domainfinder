@@ -5,6 +5,23 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.7.0 — 2026-11-27
+
+### Added
+- **GLEIF corporate family.** The seed's legal entity is looked up in GLEIF
+  (one exact legal-name match only, the registrant country breaking ties;
+  otherwise not used). The legal and other names of the companies it
+  consolidates count as the organization's names, so a domain registered to
+  a subsidiary is a match, not a conflict. Names GLEIF confirms get full
+  weight in the acquisition certificate search; GLEIF lags on acquisitions,
+  so unlisted names are never penalized. `--no-gleif` / `DOMAINFINDER_GLEIF=0`.
+- **Parent organization warning.** When GLEIF says the seed's organization
+  is itself a subsidiary, a banner at the top and bottom of the table (and on
+  stderr), `PARENT ORGANIZATION: …` in every CSV row's `root_warning` column
+  plus a seed row, and `parent_warning` / `gleif` in JSON name the parent
+  (and the direct parent when it differs). The family only goes down: the
+  parent and its other subsidiaries are not treated as the seed's.
+
 ## 1.6.0 — 2026-11-27
 
 ### Added
