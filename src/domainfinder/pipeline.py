@@ -189,6 +189,12 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
                           f"organization's")
             if fam.parent():
                 gleif_note += f"; IT IS ITSELF A SUBSIDIARY OF {fam.parent().legal_name} (LEI {fam.parent().lei})"
+            # Another of the seed's names may be a subsidiary of the entity found
+            # (a site whose certificate names the parent): say so.
+            subs = [n for n in org_names if not any_match_name(n, [fam.entity.legal_name, *fam.entity.other_names])
+                    and any_match_name(n, [x for c in fam.children for x in (c.legal_name, *c.other_names)])]
+            for n in subs[:3]:
+                gleif_note += f"; {n} (also named for the seed) is a subsidiary of {fam.entity.legal_name}"
         else:
             gleif_note = f"gleif: not used ({why})"
 

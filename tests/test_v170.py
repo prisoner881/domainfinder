@@ -160,3 +160,24 @@ async def test_gleif_failure_never_sinks_the_run(monkeypatch, tmp_path):
     rep = await run(monkeypatch, tmp_path)
     assert any(n.startswith("gleif: not used") for n in rep.notes) and rep.gleif is None
     assert any(r.domain == "shiftlane-example.com" for r in rep.results)
+
+
+@respx.mock
+async def test_another_seed_name_that_is_a_subsidiary_is_noted(monkeypatch, tmp_path):
+    async def two_names(domain, collectors, **kw):
+        if domain == "zdp.com":
+            s = seed_fp()
+            s.cert.subject_org = ORG
+            s.rdap = rdap(org="Shiftlane Software, LLC")
+            return s
+        return fp(domain, registered=False)
+
+    search(ORG, rec("L2", "ZYNTARA DATA PROCESSING, INC."))
+    family_routes("L2", children=[rec("C1", "Shiftlane Software, LLC")])
+    monkeypatch.setattr(pipeline, "fingerprint", two_names)
+    monkeypatch.setattr(pipeline, "seed_org_from_ct", no_org)
+    monkeypatch.setattr(pipeline, "ALL_SOURCES", [])
+    rep = await pipeline.run("zdp.com", Settings(cache_dir=tmp_path, use_cache=False))
+    note = next(n for n in rep.notes if n.startswith("gleif:"))
+    assert "Shiftlane Software, LLC (also named for the seed) is a subsidiary of ZYNTARA DATA PROCESSING, INC." in note
+    assert rep.parent_warning() == ""

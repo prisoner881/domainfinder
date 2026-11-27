@@ -20,7 +20,10 @@ features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
   stderr), `PARENT ORGANIZATION: …` in every CSV row's `root_warning` column
   plus a seed row, and `parent_warning` / `gleif` in JSON name the parent
   (and the direct parent when it differs). The family only goes down: the
-  parent and its other subsidiaries are not treated as the seed's.
+  parent and its other subsidiaries are not treated as the seed's. When
+  another of the seed's organization names is a subsidiary of the entity
+  found (vmware.com's certificate names Broadcom Inc.; VMware LLC is a
+  Broadcom subsidiary), the GLEIF note says so.
 
 ## 1.6.0 — 2026-11-27
 
