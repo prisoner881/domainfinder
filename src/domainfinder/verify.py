@@ -7,7 +7,8 @@ classification rules are in classify().
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
 from .collectors.dnsinfo import rname_domain
@@ -23,6 +24,8 @@ S, M, W, N, I = Strength.STRONG, Strength.MEDIUM, Strength.WEAK, Strength.NEGATI
 WEIGHTS = {
     "redirect": 60,
     "namespace": 50,
+    "namespace_mx": 50,
+    "namespace_www": 50,
     "ns_set": 50,
     "ns_set_partial": 25,
     "mail_tenant": 50,
@@ -64,7 +67,7 @@ WEIGHTS = {
     "foreign_redirect": -10,
 }
 # Strong evidence that comes from shared *infrastructure* (vs. paperwork).
-INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link",
+INFRA_KINDS = {"redirect", "namespace", "namespace_mx", "namespace_www", "ns_set", "mail_tenant", "mx_host", "netblock", "token", "cert_link",
                "ct_cocert", "dmarc_auth"}
 # Evidence that the organization controls the domain today: something its
 # operator has to set up and an outsider cannot (DNS zone, mail tenant, IP
@@ -74,6 +77,65 @@ INFRA_KINDS = {"redirect", "namespace", "ns_set", "mail_tenant", "mx_host", "net
 # similarity alone (same registrar and region, brand in the name, certificates
 # that have expired, SEC subsidiary names) stops at "needs review".
 CONTROL_KINDS = INFRA_KINDS | {"cert_org", "ct_org_current", "rdap_org", "whois_org", "whois_email"}
+
+# Evidence channels. Items in one channel come from one underlying fact (one
+# mail setup yields the tenant, the SPF include and the DMARC address; one
+# WHOIS record yields the organization, email, phone and street), so they are
+# not independent confirmations: after the strongest item of a channel, the
+# second counts CHANNEL_SECOND of its points and the rest CHANNEL_REST.
+# Different channels are run by different people through different systems
+# (registry delegation, zone content, mail tenant, IP space, certificates,
+# website, registration), so they add up in full, and agreement of several
+# earns a bonus (CORROBORATION_*). A kind missing here is a channel of its own.
+CHANNELS = {
+    "delegation": ("namespace", "ns_set", "ns_set_partial"),
+    "zone": ("soa_rname",),
+    "mail": ("mail_tenant", "mx_host", "namespace_mx", "spf_seed", "spf_shared",
+             "dmarc_auth", "dmarc_vendor", "dmarc_to_seed"),
+    "hosting": ("netblock", "namespace_www"),
+    "token": ("token",),
+    "certificate": ("cert_link", "ct_cocert", "cert_org", "ct_org_current", "ct_org_historic"),
+    "website": ("redirect", "csp_trust", "csp_trust_brand", "csp_trust_one", "analytics",
+                "seed_link", "seed_link_brand"),
+    "registration": ("rdap_org", "whois_org", "whois_email", "whois_email_same", "whois_phone", "whois_street",
+                     "registrar_region", "held_brand", "held", "held_brand_registrar", "brand_org"),
+    "name": ("brand_label", "subsidiary"),
+}
+CHANNEL_OF = {k: ch for ch, kinds in CHANNELS.items() for k in kinds}
+CHANNEL_SECOND, CHANNEL_REST = 0.5, 0.25
+# Corroboration: per independent channel beyond the first that carries medium
+# or strong evidence (the name channel never counts), up to the maximum.
+CORROBORATION_STEP, CORROBORATION_MAX = 5, 15
+
+
+def channel_of(kind: str) -> str:
+    return CHANNEL_OF.get(kind, kind)
+
+
+def apply_channels(ev: list[Evidence]) -> None:
+    """Discount repeated evidence within a channel and add the corroboration
+    bonus, in place, so the evidence points still add up to the score."""
+    groups: dict[str, list[Evidence]] = defaultdict(list)
+    for e in ev:
+        if e.points > 0:
+            groups[channel_of(e.kind)].append(e)
+    for ch, items in groups.items():
+        items.sort(key=lambda e: -e.points)
+        for i, e in enumerate(items[1:], 1):
+            share = CHANNEL_SECOND if i == 1 else CHANNEL_REST
+            e.points = max(1, round(e.points * share))
+            e.detail += f" (more {ch} evidence: {share:.0%} counted)"
+    agree = sorted(ch for ch, items in groups.items() if ch != "name"
+                   and any(e.strength in (Strength.STRONG, Strength.MEDIUM) for e in items))
+    if len(agree) >= 2 and any(e.strength is Strength.STRONG for e in ev if e.points > 0):
+        bonus = min(CORROBORATION_MAX, CORROBORATION_STEP * (len(agree) - 1))
+        ev.append(Evidence("corroboration", Strength.WEAK, bonus,
+                           f"{len(agree)} independent kinds of evidence agree ({', '.join(agree)})"))
+
+
+def infra_channels(ev: list[Evidence]) -> set[str]:
+    """Channels with strong infrastructure evidence: independent infrastructure matches."""
+    return {channel_of(e.kind) for e in ev if e.strength is Strength.STRONG and e.kind in INFRA_KINDS}
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -201,15 +263,12 @@ class Scorer:
                           if r and r not in self.shared_ns_domains})
         mx_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.mx) if r})
         cn_ours = sorted({r for r in (self._host_ours(h, verified, d) for h in fp.www_cname) if r})
-        bits = []
         if ns_ours:
-            bits.append(f"nameservers under {ns_ours[0]}")
+            add("namespace", S, f"nameservers under {ns_ours[0]}")
         if mx_ours:
-            bits.append(f"MX under {mx_ours[0]}")
+            add("namespace_mx", S, f"MX under {mx_ours[0]}")
         if cn_ours:
-            bits.append(f"www CNAME to {cn_ours[0]}")
-        if bits:
-            add("namespace", S, "; ".join(bits))
+            add("namespace_www", S, f"www CNAME to {cn_ours[0]}")
 
         # --- nameserver set ---------------------------------------------------
         seed_ns, cand_ns = set(seed.ns), set(fp.ns)
@@ -418,7 +477,7 @@ class Scorer:
             else:
                 add("seed_link", W, cand.sources["seed-links"])
         for h in cand.hints:
-            ev.append(h)
+            ev.append(replace(h))  # a copy: scoring adjusts points, and hints are reused every round
             if h.kind == "whois_org":  # an exact current registrant match is a registration match
                 flags["registration_match"] = True
         return ev, flags
@@ -530,13 +589,13 @@ class Scorer:
         seeds = [c for c in sr.contacts if c["role"] in owner_roles]
         if not mine or not seeds:
             return
-        for field, kind, what in (("email", "whois_email_same", "contact email address"),
+        for attr, kind, what in (("email", "whois_email_same", "contact email address"),
                                   ("phone", "whois_phone", "phone number"),
                                   ("street", "whois_street", "street address")):
-            seed_values = {c[field] for c in seeds if c.get(field)} - shared
-            if field == "email":  # an email at the seed's domain is already strong evidence above
+            seed_values = {c[attr] for c in seeds if c.get(attr)} - shared
+            if attr == "email":  # an email at the seed's domain is already strong evidence above
                 seed_values = {v for v in seed_values if not self._ours(registrable(v.split("@", 1)[1]), verified)}
-            hit = next((c for c in mine if c.get(field) in seed_values), None)
+            hit = next((c for c in mine if c.get(attr) in seed_values), None)
             if hit:
                 add(kind, Strength.MEDIUM, f"same WHOIS {hit['role']} {what} as {self.seed.fp.domain}'s")
 
@@ -570,7 +629,7 @@ class Scorer:
         if fp.registered is False:
             return 0, Classification.REJECTED, status
         strong = {e.kind for e in ev if e.strength is Strength.STRONG}
-        infra = strong & INFRA_KINDS
+        infra = infra_channels(ev)
         if flags["different_org"] and len(infra) >= 2:
             # Two independent infrastructure matches outweigh a different legal
             # name: acquisitions keep their old registrant and certificate names.
@@ -578,6 +637,7 @@ class Scorer:
                 if e.kind.startswith("different_org"):
                     e.strength, e.points = Strength.INFO, 0
                     e.detail += " (likely subsidiary/acquisition: infrastructure matches)"
+        apply_channels(ev)
         raw = sum(e.points for e in ev)
         score = max(0, min(100, raw))
 
@@ -597,13 +657,15 @@ class Scorer:
                 return max(min(score, self.high - 1), self.review), Classification.REVIEW, status
             return min(score, self.review - 1), Classification.REJECTED, status
 
-        if score >= self.high and strong:
-            if any(e.kind in CONTROL_KINDS and e.points > 0 for e in ev):
-                return score, Classification.OWNED, status
-            # High score from registration similarity alone: probable, not
-            # proven. Automated consumers treat "owned" as near-certain.
+        control = any(e.kind in CONTROL_KINDS and e.points > 0 for e in ev)
+        if score >= self.high and strong and control:
+            return score, Classification.OWNED, status
+        if strong and not control and score >= self.review:
+            # Registration similarity alone: probable, not proven. Automated
+            # consumers treat "owned" as near-certain.
             ev.append(Evidence("registration_only", Strength.INFO, 0,
                                "no evidence that the organization operates it (registration similarity only)"))
+        if score >= self.high and strong:
             return min(score, self.high - 1), Classification.REVIEW, status
         if score >= self.review and (strong or any(e.strength is Strength.MEDIUM for e in ev)):
             return min(score, self.high - 1), Classification.REVIEW, status

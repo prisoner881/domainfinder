@@ -5,6 +5,37 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.4.0 — 2026-11-27
+
+### Changed
+- **Evidence is grouped into channels, so one fact is no longer counted
+  several times.** Items from one underlying fact (one mail setup: tenant,
+  MX, SPF, DMARC; one WHOIS record: organization, email, phone, street; one
+  certificate: live link, organization, CT) share a channel. Within a
+  channel the strongest item counts in full, the second at 50% and the rest
+  at 25%. Channels (delegation, zone, mail, hosting, token, certificate,
+  website, registration, name) add up in full. Example: a company served by
+  the seed's small dedicated mail host, with the host's SPF include and the
+  brand in its name, scored 70 (owned); it now scores 60 (needs review).
+- **Agreement earns a bonus.** When two or more independent channels carry
+  medium or strong evidence (and one item is strong), a `corroboration`
+  item adds 5 points per agreeing channel beyond the first, up to 15.
+- The points shown per evidence item are the counted points and still add
+  up to the score; discounted items say so.
+- "Nameservers / MX / www CNAME under the seed's domain" are now separate
+  evidence items (`namespace`, `namespace_mx`, `namespace_www`) in their own
+  channels.
+- "Two independent infrastructure matches" (which excuse a different
+  registrant name, and select acquisition names for the `acq-ct` search)
+  now means matches in two different channels.
+- Registration-only results in needs review carry the `registration_only`
+  note at any score, not only at 70 and above.
+
+### ADP check
+Replaying the evidence of the audited ADP run: the 363 domains with control
+evidence stay owned (only two score under 85), the 16 registration-only
+domains stay in needs review (now 65–69), and nothing else moves.
+
 ## 1.3.0 — 2026-11-27
 
 ### Changed

@@ -25,7 +25,7 @@ def kinds(r):
 
 def test_registration_similarity_alone_stops_at_review():
     r = scorer().score(fp("adp.cloud", rdap=rdap(), **HELD), cand("adp.cloud"), set())
-    assert r.score == 69 and r.classification is C.REVIEW and "registration_only" in kinds(r)
+    assert r.score == 65 and r.classification is C.REVIEW and "registration_only" in kinds(r)
 
 
 def test_any_control_signal_makes_the_same_domain_owned():

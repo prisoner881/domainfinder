@@ -179,7 +179,7 @@ Every crt.sh search (`crtsh-org`, `crtsh-san`, `acq-ct`, and the seed's organiza
 
 ### 3. Scoring
 
-Each rule adds an evidence item with points (the weights are in `verify.py → WEIGHTS`):
+Each rule adds an evidence item with points (the weights are in `verify.py → WEIGHTS`). The table lists each item's full weight; how items combine is described under [Evidence channels](#evidence-channels).
 
 | Evidence | Strength | Points |
 |---|---|---|
@@ -215,6 +215,24 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | RDAP registrant / certificate names a different organization | negative | −40 / −20 |
 | Redirects to an unrelated domain (a redirect to the registrar's own site counts as "held" instead) | negative | −10 |
 
+#### Evidence channels
+
+Several evidence items often come from one underlying fact: one mail setup gives the mail tenant, the SPF include and the DMARC address, and one WHOIS record gives the registrant organization, contact email, phone and street. Simply adding their points would count one fact several times. So each item belongs to a channel (`verify.py → CHANNELS`):
+
+| Channel | Evidence |
+|---|---|
+| delegation | nameservers under the seed's domain, same NS set |
+| zone | SOA contact (the authoritative servers actually serve the zone) |
+| mail | mail tenant, dedicated MX host, MX under the seed's domain, SPF, DMARC |
+| hosting | netblock, `www` CNAME under the seed's domain |
+| token | TXT verification token |
+| certificate | live certificate link or organization, CT co-certificate, CT organization |
+| website | redirect, CSP, analytics ID, link from the seed's site |
+| registration | registrant organization (RDAP, WhoisXML), WHOIS contacts, registrar and region, holding page, brand-named registrant |
+| name | brand in the name, SEC subsidiary |
+
+Within a channel, the strongest item counts in full, the second at 50% and the rest at 25%. Channels are run by different people through different systems, so they add up in full. When two or more channels (not counting *name*) carry medium or strong evidence, and at least one item is strong, a `corroboration` item adds 5 points per agreeing channel beyond the first, up to 15. The points shown in the output are the counted points, so they still add up to the score; a discounted item says so ("more mail evidence: 50% counted").
+
 Guards that keep false positives out:
 
 * **Shared infrastructure never counts.** NS hosts at mass providers are listed in `data/shared_dns_providers.txt`: Cloudflare, GoDaddy `domaincontrol.com`, Route 53 `awsdns-*`, Azure, Google, Wix, Squarespace, registrar defaults and more. Managed-DNS pools (Akamai `akam.net`, NS1, UltraDNS, Dyn) are only compared as a *whole set*. Netblocks owned by clouds and CDNs are ignored (`data/shared_hosting_orgs.txt`). Shared MX and SPF targets only count when they carry a tenant ID. Nameservers that aren't on either list are checked with reverse-NS data. One whose host serves 200 or more domains is treated as shared DNS infrastructure (a DNS provider, or a company's public DNS service such as Oracle's `oraclecloud.net`). Its domains aren't pulled in as candidates, "nameservers under it" doesn't count as evidence, and it can only match as a whole set. If a paid reverse-NS source reports that an NS host serves more than `DOMAINFINDER_SHARED_NS_THRESHOLD` domains, NS matching is turned off.
@@ -223,7 +241,7 @@ Guards that keep false positives out:
 * **Weak evidence is never enough.** The main list needs at least one strong item.
 * **Owned means operated, not just registered.** The main list also needs at least one item showing the organization *controls* the domain: its DNS, mail, network, a verification token, a certificate link or certificate in its name, a redirect into its sites, a registrant organization match, or a contact email at its domain (`verify.py → CONTROL_KINDS`). Registration similarity alone (same brand-protection registrar and region, holding page, brand in the name, past certificates, matching phone or street address) stops at *needs review* with a `registration_only` note, however high it adds up. In an audit of an ADP run, every owned domain with control evidence was confirmed; the parked, registration-only ones were probably ADP's but could not be proven.
 * **Contact data is used only where it is published.** Most gTLD contacts are redacted since 2018; placeholders ("REDACTED FOR PRIVACY", web-form URLs) are ignored. The registrar's, its abuse desk's and privacy-proxy contacts never count, technical contacts (often the registrar's or a DNS host's) are not compared with the seed's, and evidence text never prints an email address or phone number.
-* **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
+* **A name match is not ownership.** A registrant or certificate that names another organization blocks the main list, unless two independent infrastructure matches (in different channels) agree (acquisitions keep their old legal names). With any strong evidence for the seed, such a conflict goes to *needs review* rather than being rejected.
 * **Parked domains** go to *needs review* when their registration matches the seed's (a possible defensive registration), and are rejected otherwise.
 * **Holding pages.** Brand-protection registrars park unused client domains (MarkMonitor: `15.197.70.98`, `ns*.markmonitor.com`). Since 1.3.0 a held domain is owned only with control evidence (for example a contact email at the seed's domain or a current certificate in its name); when the registrar and registrant region match the seed's *and* the brand is in the name or CT logs show past certificates issued to the seed's organization, it scores just under the threshold (69) in *needs review*. A held domain with only the registrar and region in common goes to *needs review*, as does a brand-named one at the same registrar but in another region.
 * **Second pass.** After the first round, scoring repeats with the newly verified domains, so "redirects to workmarket.com" counts once workmarket.com itself is verified.

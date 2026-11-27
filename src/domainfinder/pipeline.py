@@ -398,15 +398,14 @@ def acquisition_names(results: list[Result], org_names: list[str], limit: int = 
     when they are not the seed's own names. Learned from evidence, not guessed."""
     from .data import load as load_data
     from .orgnames import any_match, normalize
-    from .verify import INFRA_KINDS
+    from .verify import infra_channels
 
     data = load_data()
     out: list[tuple[str, str]] = []
     ranked = sorted((r for r in results if r.classification is Classification.OWNED and r.fingerprint),
                     key=lambda r: (-r.score, r.domain))
     for r in ranked:
-        strong_infra = {e.kind for e in r.evidence if e.strength.value == "strong"} & INFRA_KINDS
-        if len(strong_infra) < 2:
+        if len(infra_channels(r.evidence)) < 2:
             continue
         f = r.fingerprint
         names = []

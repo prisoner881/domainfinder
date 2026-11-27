@@ -101,7 +101,7 @@ def test_markmonitor_holding_page_with_brand_is_review_not_owned():
     r = scorer().score(
         fp("adpresearch.com", a=["15.197.70.98"], ns=["ns1.markmonitor.com", "ns2.markmonitor.com"], rdap=rdap()),
         cand("adpresearch.com"), set())
-    assert r.classification is C.REVIEW and r.score == 69
+    assert r.classification is C.REVIEW and r.score == 65
     assert r.status == "held/inactive" and "registration_only" in kinds(r)
 
 
