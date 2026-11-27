@@ -139,8 +139,9 @@ class CrtshOrgSource(Source):
                     ctx.notes.append(f"crtsh-org: query O={org!r} {extra or ''} failed")
                     continue
                 if rows.truncated:
+                    route = "database" if rows.backend == "database" else "web API"
                     ctx.notes.append(f"crtsh-org: O={org!r} hit the {rows.cap:,}-row limit of crt.sh's "
-                                     f"{rows.backend}; results truncated")
+                                     f"{route}; results truncated")
                 collect_org_hits(rows, ctx.org_names, hits)
         hits.pop(ctx.seed.domain, None)
         ctx.ct_org_domains.update(hits)

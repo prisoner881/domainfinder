@@ -34,7 +34,10 @@ class FakeCursor:
     async def __aexit__(self, *exc):
         return False
 
-    async def execute(self, sql, args):
+    async def execute(self, sql, args=None):
+        if sql.startswith("SET "):
+            self.conn.settings.append(sql)
+            return
         self.conn.calls.append((sql, args))
         answer = self.conn.answers.pop(0)
         if isinstance(answer, Exception):
@@ -51,7 +54,9 @@ class FakeConn:
     def __init__(self, answers):
         self.answers = list(answers)
         self.calls = []
+        self.settings = []
         self.closed = False
+        self.broken = False
 
     def cursor(self):
         return FakeCursor(self)
@@ -171,20 +176,61 @@ async def test_blocked_port_falls_back_to_the_web_api_and_stops_trying():
 
 
 @respx.mock
-async def test_failed_query_falls_back_for_that_query_then_two_turn_the_database_off():
+async def test_failed_query_falls_back_for_that_query_then_three_in_a_row_turn_the_database_off():
     respx.get(url__startswith="https://crt.sh/").respond(json=[{"common_name": "web.com", "name_value": "web.com"}])
     http = Http()
-    db = db_with(TimeoutError("statement timeout"), rows("adp.com"), TimeoutError("x"), TimeoutError("y"))
-    first = await using(db, crtsh_json(http, {"q": "a.com"}, 30))
-    second = await using(db, crtsh_json(http, {"q": "b.com"}, 30))
-    third = await using(db, crtsh_json(http, {"q": "c.com"}, 30))
-    fourth = await using(db, crtsh_json(http, {"q": "d.com"}, 30))
-    fifth = await using(db, crtsh_json(http, {"q": "e.com"}, 30))
-    assert [r.backend for r in (first, second, third, fourth, fifth)] == ["web", "database", "web", "web", "web"]
-    assert db.disabled_reason.startswith("2 queries failed")
-    assert db.queries == 1 and db.fallbacks == 3  # the fifth never reached the database
-    assert all(c.closed for c in db.conns[:-1])  # a failed query drops its connection
+    db = db_with(TimeoutError(), rows("adp.com"), TimeoutError(), RuntimeError("x"), RuntimeError("y"))
+    got = [await using(db, crtsh_json(http, {"q": f"{c}.com"}, 30)) for c in "abcdef"]
+    assert [r.backend for r in got] == ["web", "database", "web", "web", "web", "web"]
+    assert db.disabled_reason.startswith("3 failures in a row")
+    assert db.queries == 1 and db.fallbacks == 4  # the sixth never reached the database
+    assert len(db.conns) == 1  # a healthy connection is kept after a failed query
+    assert db.conns[0].settings[0] == "SET statement_timeout = 30000"  # crt.sh stops slow queries itself
+    assert db.failures[0] == "q='a.com': no answer within 30 s"
+    assert "database failures: q='a.com': no answer within 30 s" in db.summary()
     await http.aclose()
+
+
+@respx.mock
+async def test_broken_connection_is_replaced_and_a_failed_reconnect_is_not_a_blocked_port():
+    respx.get(url__startswith="https://crt.sh/").respond(json=[])
+    http = Http()
+    db = CrtshDb()
+    conns = []
+
+    async def connect():
+        if len(conns) == 1:
+            raise crtsh_db.ConnectFailed("1.2.3.4: OperationalError: too many connections")
+        conn = FakeConn([rows("adp.com"), RuntimeError("server closed the connection"), rows("x.com")])
+        conns.append(conn)
+        return conn
+
+    db._connect = connect
+    a = await using(db, crtsh_json(http, {"q": "a.com"}, 30))
+    conns[0].broken = True  # the next query finds the connection dead
+    b = await using(db, crtsh_json(http, {"q": "b.com"}, 30))
+    c = await using(db, crtsh_json(http, {"q": "c.com"}, 30))  # reconnect fails once
+    assert (a.backend, b.backend, c.backend) == ("database", "web", "web")
+    assert conns[0].closed  # the broken connection was dropped
+    assert not db.disabled_reason  # it worked earlier: keep trying
+    assert "reconnecting for q='c.com': 1.2.3.4: OperationalError: too many connections" in db.failures
+    await http.aclose()
+
+
+async def test_ipv4_addresses_are_tried_first(monkeypatch):
+    import socket
+
+    db = CrtshDb()
+
+    async def fake_getaddrinfo(host, port, type=0):
+        return [(socket.AF_INET6, 1, 6, "", ("2a0e:ac00::1", port, 0, 0)),
+                (socket.AF_INET, 1, 6, "", ("91.199.212.73", port))]
+
+    class Loop:
+        getaddrinfo = staticmethod(fake_getaddrinfo)
+
+    monkeypatch.setattr("asyncio.get_running_loop", lambda: Loop())
+    assert await CrtshDb._addresses(db) == ["91.199.212.73", "2a0e:ac00::1"]
 
 
 @respx.mock
@@ -218,6 +264,7 @@ def test_truncation_is_exact_for_the_database_and_estimated_for_the_web():
     full = CtRows([{"result_count": 2}] * 5, "database", 10)
     short = CtRows([{"result_count": 1}] * 9, "database", 10)
     assert full.truncated and not short.truncated
+    assert CtRows([], "web").backend == "web"
     assert CtRows([{}] * 9995, "web").truncated and not CtRows([{}] * 500, "web").truncated
 
 

@@ -150,8 +150,8 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 Every crt.sh search (`crtsh-org`, `crtsh-san`, `acq-ct`, and the seed's organization name) goes first to crt.sh's public, read-only PostgreSQL database (`guest@crt.sh:5432`, database `certwatch`), using the same SQL crt.sh's own search runs. If that fails for any reason, the same search goes to crt.sh's web API.
 
 * **Why:** the web API stops every search at 10,000 rows and its front end is often overloaded (404/502/504). The database fetches only the columns needed and allows up to 50,000 rows per search (`DOMAINFINDER_CRTSH_DB_LIMIT`).
-* **Falling back:** a refused or blocked connection (many networks block outbound port 5432) turns the database off for the rest of the run after one attempt (about 10 seconds at most). A failed query falls back for that query only; two failed queries turn the database off. A missing `psycopg` driver also means web API only.
-* **What you see:** with `-v`, a note says how many searches the database answered and why it was turned off, if it was. `crtsh-org`'s truncation note names the limit that applied.
+* **Falling back:** if the first connection is refused or blocked (many networks block outbound port 5432), the database is off for the rest of the run (about 10 seconds lost at most). After that, a failed query or reconnect falls back for that search only; three failures in a row turn the database off. Each query carries a server-side time limit, so crt.sh stops a slow query itself and the connection stays usable. IPv4 addresses are tried before IPv6. A missing `psycopg` driver also means web API only.
+* **What you see:** with `-v`, a note says how many searches the database answered, lists the searches that failed and why, and says why the database was turned off, if it was. `crtsh-org`'s truncation note names the limit that applied.
 * **Turning it off:** `--no-crtsh-db` or `DOMAINFINDER_CRTSH_DB=0`.
 * It is the same data from the same operator: when crt.sh is down entirely, both routes fail.
 

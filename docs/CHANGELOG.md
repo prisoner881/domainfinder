@@ -5,6 +5,24 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.2.1 — 2026-11-27
+
+### Fixed
+- **A passing database failure no longer turns the database off for the
+  run.** After a slow query, reconnecting failed (the note showed an IPv6
+  address and "Network is unreachable") and the database was treated like a
+  blocked port. Now only a first connection that fails means "blocked";
+  later failures count toward three in a row.
+- **IPv4 first.** crt.sh's addresses are tried IPv4 first, then IPv6, so a
+  network without working IPv6 still connects. Each address's error is kept.
+- **Slow queries are stopped by crt.sh itself** (`SET statement_timeout`
+  matching the tool's own timeout), so the connection stays usable and no
+  abandoned query keeps running on crt.sh; a healthy connection is kept, a
+  broken one replaced.
+- **The note says what failed:** each failed search and its reason, not only
+  the last error, cut off mid-sentence. "crt.sh's web" now reads "crt.sh's
+  web API".
+
 ## 1.2.0 — 2026-11-27
 
 ### Added
