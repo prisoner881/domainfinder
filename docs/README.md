@@ -8,7 +8,7 @@ domainfinder example.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **1.5.1** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.5.1`. `domainfinder --version` prints that line too.
+Current version: **1.5.2** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts with a small framed banner naming the tool and its version, printed on stderr so `--json` output stays clean. When stderr isn't a terminal (logs, pipes, CI), the banner is the plain line `domainfinder 1.5.2`. `domainfinder --version` prints that line too.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -110,7 +110,7 @@ Some domains use non-Latin scripts: `example.信息` is a domain under `.信息`
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
 * Unicode input works too: `domainfinder example.信息` or `--candidate example.信息`.
 
-Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-crtsh-db`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
+Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 3000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-crtsh-db`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
 

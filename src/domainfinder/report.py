@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from . import BANNER
 from .domains import display, humanize, to_ascii, to_unicode
-from .models import Classification, Result
+from .models import CAP_NOTES, Classification, Result
 from .pipeline import RunReport
 
 
@@ -77,7 +77,8 @@ def to_csv(rep: RunReport, include_rejected: bool = False, idn: str = "unicode")
             w.writerow([
                 display(r.domain, idn), r.classification.value, r.score, humanize(r.status, idn),
                 "; ".join(r.sources),
-                humanize(" | ".join(f"{e.detail} ({e.points:+d})" for e in r.evidence if e.points), idn),
+                humanize(" | ".join(f"{e.detail} ({e.points:+d})" for e in r.evidence if e.points)
+                         + "".join(f" | review: {e.detail}" for e in r.evidence if e.kind in CAP_NOTES), idn),
                 to_ascii(r.domain), to_unicode(r.domain), warning,
             ])
     return buf.getvalue()

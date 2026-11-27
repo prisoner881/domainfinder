@@ -5,6 +5,29 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.5.2 — 2026-11-27
+
+### Fixed
+- **Registrar RDAP rate limits lost registration evidence.** The registrar's
+  RDAP carries the registrant organization and contact emails the registry
+  lacks; in test runs it refused bursts (one registrar for 29 domains of one
+  seed), so domains lost their registrant match or contact email and some
+  dropped from the main list. Failed registrar lookups now get a slower
+  second try before scoring (one request at a time per registrar, a second
+  apart), and RDAP servers get gentler default pacing (3 at a time, 150 ms
+  apart). A `-v` note reports how many failed and how many the retry
+  recovered.
+- **Why a domain was held back was invisible in the CSV and table.** The
+  `operated_for_client`, `redirect_only` and `registration_only` notes carry
+  no points, and only point-carrying evidence was printed. They now appear
+  in the CSV (`review: …` at the end of the evidence) and lead the table's
+  evidence column.
+
+### Changed
+- `--max-candidates` defaults to 3000 (was 1000). The tool runs on
+  organizations of unknown size; a large one hit the old cap, and which
+  candidates were verified then varied from run to run.
+
 ## 1.5.1 — 2026-11-27
 
 ### Fixed

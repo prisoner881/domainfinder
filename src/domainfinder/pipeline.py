@@ -94,7 +94,7 @@ async def run(
     extra_candidates: list[str] | None = None,
     imported_candidates: list[tuple[str, str]] | None = None,
     import_notes: list[str] | None = None,
-    max_candidates: int = 1000,
+    max_candidates: int = 3000,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> RunReport:
     supplied = seed
@@ -248,6 +248,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
     profile.ns_shared_override = ns_shared
     scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
                     ctx.ct_org_domains, ctx.subsidiary_names, ctx.shared_ns_domains, ctx.ct_cocerts)
+    await retry_registrars(collectors, ctx)
     results = score_all(scorer, items)
     verified_count = len(cands)
 
@@ -305,6 +306,7 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
             total += len(new)
             verified_count += len(picked)
     if second or scorer.ct:
+        await retry_registrars(collectors, ctx)
         results = score_all(scorer, items)
     if ns_stats["checked"]:
         ctx.notes.append(f"dns: {ns_stats['checked']} nameserver set(s) only partly matching the seed's re-read from "
@@ -353,6 +355,14 @@ async def refresh_ns(fp: Fingerprint, resolver, stats: dict[str, int] | None = N
         fp.ns = sorted(set(ans.records))
         if stats is not None:
             stats["changed"] = stats.get("changed", 0) + 1
+
+
+async def retry_registrars(collectors, ctx) -> None:
+    """A slow second try for registrar RDAP lookups that failed (rate limits)."""
+    if collectors.rdap.registrar_failures:
+        n = sum(collectors.rdap.registrar_failures.values())
+        got = await collectors.rdap.retry_failed()
+        ctx.notes.append(f"rdap: {n} registrar lookup(s) failed at first; {got} answered on a slower second try")
 
 
 def cache_note(http) -> str:

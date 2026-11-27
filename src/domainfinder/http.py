@@ -34,6 +34,7 @@ HOST_LIMITS: dict[str, tuple[int, float]] = {
     "cloudflare-dns.com": (8, 0.0),
 }
 DEFAULT_LIMIT = (4, 0.0)
+RDAP_LIMIT = (3, 0.15)
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 MAX_RETRY_AFTER = 60.0
 
@@ -164,7 +165,8 @@ class Http:
     def _gate(self, host: str) -> _HostGate:
         g = self._gates.get(host)
         if g is None:
-            c, i = HOST_LIMITS.get(host, DEFAULT_LIMIT)
+            # RDAP servers (registries' and registrars') rate limit bursts.
+            c, i = HOST_LIMITS.get(host) or (RDAP_LIMIT if "rdap" in host.split(".")[0] else DEFAULT_LIMIT)
             g = self._gates[host] = _HostGate(c, i)
         return g
 

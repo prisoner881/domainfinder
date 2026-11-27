@@ -232,6 +232,7 @@ class RdapClient:
         self.bootstrap = Bootstrap(http)
         self._nets: list[Netblock] = []
         self.registrar_failures: Counter[str] = Counter()  # registrar RDAP host -> failed lookups
+        self._retry: list[tuple[str, RdapInfo]] = []  # (registrar RDAP URL, info to complete) for retry_failed()
         self._ip_locks: dict[str, asyncio.Lock] = {}
 
     async def domain(self, domain: str) -> RdapInfo:
@@ -258,6 +259,7 @@ class RdapClient:
             rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
             if not rr.ok:
                 self.registrar_failures[urlsplit(href).hostname or href] += 1
+                self._retry.append((href, info))
             if rr.ok:
                 try:
                     rel = rr.json()
@@ -267,6 +269,39 @@ class RdapClient:
                     pass
         parse_domain(data, info, urlsplit(r.url).hostname or url)
         return info
+
+    async def retry_failed(self, spacing: float = 1.0, per_host: int = 300) -> int:
+        """Ask the registrars that did not answer again, one request at a time
+        per registrar, `spacing` seconds apart: their RDAP servers often rate
+        limit bursts. Completes the RdapInfo objects in place (the fingerprints
+        hold them) and returns how many lookups succeeded."""
+        pending, self._retry = self._retry, []
+        by_host: dict[str, list[tuple[str, RdapInfo]]] = {}
+        for href, info in pending:
+            by_host.setdefault(urlsplit(href).hostname or href, []).append((href, info))
+
+        async def one_host(host: str, items: list[tuple[str, RdapInfo]]) -> int:
+            done = 0
+            for i, (href, info) in enumerate(items[:per_host]):
+                if i:
+                    await asyncio.sleep(spacing)
+                rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
+                if not rr.ok:
+                    continue
+                try:
+                    rel = rr.json()
+                except ValueError:
+                    continue
+                if isinstance(rel, dict) and not rel.get("errorCode"):
+                    parse_domain(rel, info, urlsplit(rr.url).hostname or href)
+                    self.registrar_failures[host] -= 1
+                    done += 1
+            if self.registrar_failures[host] <= 0:
+                del self.registrar_failures[host]
+            return done
+
+        results = await asyncio.gather(*(one_host(h, items) for h, items in by_host.items()))
+        return sum(results)
 
     def _known_net(self, ip: str) -> Netblock | None:
         for n in self._nets:

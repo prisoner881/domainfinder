@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sources", help="comma-separated list of sources to use (see --list-sources)")
     p.add_argument("--skip", default="", help="comma-separated list of sources to skip")
     p.add_argument("--no-hackertarget", action="store_true", help="do not use HackerTarget's free quota")
-    p.add_argument("--max-candidates", type=int, default=1000, help="verify at most this many candidates")
+    p.add_argument("--max-candidates", type=int, default=3000, help="verify at most this many candidates")
     p.add_argument("--concurrency", type=int, help="candidates fingerprinted in parallel")
     p.add_argument("--dns", choices=["auto", "system", "doh"], help="DNS mode (default auto)")
     p.add_argument("--no-tls", action="store_true", help="skip live TLS certificate checks")
