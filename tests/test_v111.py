@@ -160,3 +160,13 @@ def test_held_domain_named_after_the_organization_counts_like_the_brand():
     # a name that merely contains part of the organization's name gets no such credit
     r = s.score(fp("dataprocessingsolutions.com", **held), cand("dataprocessingsolutions.com"), set())
     assert "held_brand" not in {e.kind for e in r.evidence} and r.classification is not C.OWNED
+
+
+def test_org_named_domain_evidence_reads_naturally():
+    from domainfinder.verify import Scorer, SeedProfile
+    from helpers import seed_fp
+
+    s = Scorer(SeedProfile.build(seed_fp(), ["Automatic Data Processing, Inc."], ["adp"]))
+    r = s.score(fp("automaticdataprocessing.com", rdap=rdap()), cand("automaticdataprocessing.com"), set())
+    details = [e.detail for e in r.evidence if e.kind == "brand_label"]
+    assert details == ["named after the organization"]

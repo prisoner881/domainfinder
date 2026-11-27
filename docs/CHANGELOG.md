@@ -5,6 +5,13 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.1.3 — 2026-11-27
+
+### Fixed
+- Evidence wording: a domain named after the organization now reads "named
+  after the organization" instead of "brand 'automaticdataprocessing' in
+  name". Scores are unchanged.
+
 ## 1.1.2 — 2026-11-27
 
 ### Fixed

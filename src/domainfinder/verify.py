@@ -392,7 +392,8 @@ class Scorer:
 
         # --- weak corroboration ------------------------------------------------------------
         if brand:
-            add("brand_label", W, f"brand '{brand}' in name")
+            add("brand_label", W, "named after the organization" if brand == org_label and not self._brand_in(d)
+                else f"brand '{brand}' in name")
         if d in self.subs:
             add("subsidiary", W, f"matches SEC subsidiary {self.subs[d]}")
         if "seed-links" in cand.sources:

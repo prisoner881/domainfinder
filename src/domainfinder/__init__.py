@@ -1,6 +1,6 @@
 """domainfinder: find more domains owned by the company behind a seed domain."""
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 NAME = "domainfinder"
 BANNER = f"{NAME} {__version__}"
 TAGLINE = "Finds the other domains an organization owns, from one root domain."
