@@ -13,7 +13,6 @@ from domainfinder import pipeline, report
 from domainfinder.collectors.gleif import API, Entity, Family, find_entity, seed_family
 from domainfinder.config import Settings
 from domainfinder.http import Http
-from domainfinder.models import Classification as C
 
 ORG = "Zyntara Data Processing, Inc."
 
