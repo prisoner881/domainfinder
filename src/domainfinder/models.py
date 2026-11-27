@@ -84,6 +84,7 @@ class WebInfo:
     analytics_ids: list[str] = field(default_factory=list)
     linked_domains: list[str] = field(default_factory=list)
     csp_domains: list[str] = field(default_factory=list)
+    canonical_url: str = ""  # <link rel="canonical"> or og:url on the final page
     parking_marker: str = ""
     error: str = ""
 

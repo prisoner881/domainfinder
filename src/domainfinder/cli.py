@@ -125,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         build_parser().print_usage(sys.stderr)
         return 2
     seed = registrable(args.domain)
+    supplied = args.domain.strip()
     if not seed:
         err.print(f"[red]Not a registrable domain: {args.domain}[/red]")
         return 2
@@ -168,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         if status:
             status.start()
         rep = asyncio.run(run(
-            seed, settings, user_orgs=args.org, extra_brands=args.brand, only_sources=only,
+            supplied, settings, user_orgs=args.org, extra_brands=args.brand, only_sources=only,
             skip_sources=skip, extra_candidates=manual, imported_candidates=imported,
             import_notes=import_notes, max_candidates=args.max_candidates,
             progress=progress,
@@ -191,6 +192,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print_table(rep, out, include_review=args.include_review, verbose=args.verbose, idn=settings.idn)
 
+    from .report import root_panel
+
+    banner = root_panel(rep, settings.idn)
+    if banner is not None and (args.json or args.output):
+        # The table already shows it; for JSON and files, put it on stderr too.
+        err.print(banner)
+
     if args.output:
         suffix = args.output.suffix.lower()
         if suffix == ".json":
@@ -200,4 +208,5 @@ def main(argv: list[str] | None = None) -> int:
             # UTF-8 with a byte-order mark, so Excel shows 信息 instead of mojibake.
             args.output.write_text(to_csv(rep, include_rejected=args.verbose, idn=settings.idn), encoding="utf-8-sig")
         err.print(f"wrote {args.output}")
-    return 0
+    # Exit code 3: the run finished, but the supplied root looks wrong.
+    return 3 if rep.root_check and rep.root_check.status == "wrong" else 0

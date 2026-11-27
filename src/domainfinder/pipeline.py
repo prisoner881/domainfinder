@@ -16,6 +16,7 @@ from .fingerprint import Collectors, fingerprint
 from .http import Http
 from .models import Candidate, Classification, Fingerprint, Result
 from .orgnames import is_meaningful, same_org
+from .rootcheck import RootCheck, check_root
 from .sources import ALL_SOURCES, Source, SourceContext
 from .sources.crtsh import seed_org_from_ct
 from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
@@ -23,7 +24,7 @@ from .verify import Scorer, SeedProfile, plausible_org_for_label, score_all
 log = logging.getLogger(__name__)
 
 # When there are more candidates than --max-candidates, verify these first.
-SOURCE_PRIORITY = ["manual", "import", "whoisxml", "crtsh-org", "seed-links", "cctld", "gtld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
+SOURCE_PRIORITY = ["root-check", "manual", "import", "whoisxml", "crtsh-org", "seed-links", "cctld", "gtld", "crtsh-san", "hackertarget", "viewdns", "edgar"]
 
 
 @dataclass
@@ -39,6 +40,7 @@ class RunReport:
     candidates_total: int
     candidates_verified: int
     http_stats: dict[str, int] = field(default_factory=dict)
+    root_check: RootCheck | None = None
 
     def by_class(self, cls: Classification) -> list[Result]:
         return sorted(
@@ -93,6 +95,7 @@ async def run(
     max_candidates: int = 1000,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> RunReport:
+    supplied = seed
     seed = registrable(seed) or seed
     cache = Cache(settings.cache_dir / "cache.sqlite", settings.cache_ttl_hours * 3600, enabled=settings.use_cache)
     http = Http(cache=cache, timeout=settings.http_timeout)
@@ -100,7 +103,7 @@ async def run(
     collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check,
                             whois=settings.whois)
     try:
-        return await _run(seed, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
+        return await _run(seed, supplied, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
                           skip_sources or [], extra_candidates or [], imported_candidates or [],
                           import_notes or [], max_candidates, progress)
     finally:
@@ -108,7 +111,7 @@ async def run(
         cache.close()
 
 
-async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources, skip_sources,
+async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, only_sources, skip_sources,
                extra_candidates, imported_candidates, import_notes, max_candidates, progress) -> RunReport:
     def tick(stage: str, done: int = 0, total: int = 0):
         if progress:
@@ -138,6 +141,11 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
                         org_names=org_names, brand_labels=brand_labels)
     if tls_note:
         ctx.notes.append(tls_note)
+    root = check_root(supplied, seed_fp)
+    if root.flagged:
+        ctx.notes.insert(0, "root check: " + root.headline())
+    elif root.normalized:
+        ctx.notes.insert(0, "root check: " + root.normalized)
     sources: list[Source] = [cls(settings) for cls in ALL_SOURCES]
     used, disabled = [], {}
     active = []
@@ -178,6 +186,9 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
             for k, v in c.sources.items():
                 m.add_source(k, v)
             m.hints.extend(c.hints)
+    if root.suggested and root.suggested != seed:
+        merged.setdefault(root.suggested, Candidate(domain=root.suggested)).add_source(
+            "root-check", "suggested real root of the supplied domain")
     for d in extra_candidates:
         rd = registrable(d)
         if rd and rd != seed:
@@ -193,8 +204,8 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
     cands = sorted(merged.values(), key=_priority)
     total = len(cands)
     if len(cands) > max_candidates:
-        given = [c for c in cands if {"manual", "import"} & set(c.sources)]
-        found = [c for c in cands if not {"manual", "import"} & set(c.sources)]
+        given = [c for c in cands if {"manual", "import", "root-check"} & set(c.sources)]
+        found = [c for c in cands if not {"manual", "import", "root-check"} & set(c.sources)]
         keep = max(0, max_candidates - len(given))
         ctx.notes.append(f"verifying {len(given)} given/imported + the first {keep} of {len(found)} discovered "
                          f"candidates (--max-candidates)")
@@ -248,6 +259,7 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
         seed=seed, seed_fingerprint=seed_fp, org_names=org_names, brand_labels=brand_labels,
         sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,
         candidates_total=total, candidates_verified=verified_count, http_stats=dict(collectors.http.stats),
+        root_check=root,
     )
 
 

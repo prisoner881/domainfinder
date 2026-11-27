@@ -22,6 +22,20 @@ ANALYTICS_PATTERNS = [
 ]
 HREF = re.compile(r"""(?:href|src|action)\s*=\s*["']([^"'#\s]+)""", re.I)
 TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+TAG = re.compile(r"<(link|meta)\b([^>]*)>", re.I)
+ATTR = re.compile(r"""([a-zA-Z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+
+
+def extract_canonical(html: str, base_url: str) -> str:
+    """The page's declared canonical URL: <link rel="canonical"> first, then og:url."""
+    og = ""
+    for m in TAG.finditer(html[:300_000]):
+        attrs = {a.group(1).lower(): (a.group(2) or a.group(3) or a.group(4) or "") for a in ATTR.finditer(m.group(2))}
+        if m.group(1).lower() == "link" and "canonical" in attrs.get("rel", "").lower().split() and attrs.get("href"):
+            return urljoin(base_url, htmllib.unescape(attrs["href"]).strip())
+        if m.group(1).lower() == "meta" and attrs.get("property", "").lower() == "og:url" and attrs.get("content"):
+            og = og or urljoin(base_url, htmllib.unescape(attrs["content"]).strip())
+    return og
 
 
 def extract_analytics(html: str) -> list[str]:
@@ -88,6 +102,7 @@ async def _collect_web(domain: str, http: Http, apex_resolves: bool) -> WebInfo:
         if m:
             info.title = " ".join(htmllib.unescape(m.group(1)).split())[:200]
         info.analytics_ids = extract_analytics(text)
+        info.canonical_url = extract_canonical(text, info.final_url)
         info.linked_domains = extract_links(text, info.final_url)
         info.csp_domains = extract_csp_domains(resp.headers.get("content-security-policy", ""))
         marker = load_data().has_parking_marker(text[:200_000])

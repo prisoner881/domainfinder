@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.6** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.6` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.7** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.7` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -39,6 +39,33 @@ domainfinder adp.com --candidate elabor.com  # verify extra domains you already 
 domainfinder adp.com --import found.csv      # also verify domains found by other processes
 domainfinder --list-sources                  # which sources are on, and why others are off
 ```
+
+### Root-domain check
+
+Input lists are not always right, so before anything else the tool checks that the supplied domain really is the organization's root domain. The run always continues with the domain as supplied. If the check fails, the output says so loudly and names the suggested real root.
+
+The supplied root **looks wrong** when:
+* it isn't registered;
+* it's parked or for sale;
+* it's a registrar holding page (registered but unused);
+* its website **redirects to another domain**;
+* its homepage declares its canonical address (`<link rel="canonical">` or `og:url`) on another domain.
+
+**Check the root** (an advisory, shown in yellow) appears when:
+* its nameservers and mail servers are both run from another domain, or from another domain carrying the same brand (a parent organization?);
+* it has no website and no mail at all.
+
+The suggested real root is the redirect target first, then the canonical address, then that parent domain. Next to it, the tool lists what else corroborates it: the same brand in both names, the supplied domain's DNS, mail or `www` alias pointing at it, its TLS certificate or CSP covering it. When nothing corroborates the suggestion, it says so. A login portal that redirects to a third-party sign-in service shouldn't be presented as owned by that service.
+
+The suggested root is also added as a candidate, so its verification shows up in the results. Where the flag appears:
+
+* **Table:** a red banner at the top *and* the bottom.
+* **JSON:** a top-level `root_check` object (`status`: `ok` / `wrong` / `advisory`, plus `suggested`, `reasons`, `advisories`, `corroboration` and `headline`).
+* **CSV:** a `root_warning` column filled on every row, and a first row for the supplied root itself (classification `seed`), so the warning survives even when no other domain qualifies.
+* **stderr:** a banner when writing JSON or a file.
+* **Exit code:** `3` when the root looks wrong (the run still completes), instead of `0`.
+
+A supplied host name (`www.example.com`) is reduced to its registrable domain and noted.
 
 ### Importing candidate domains
 

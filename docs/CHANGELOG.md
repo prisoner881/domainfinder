@@ -3,6 +3,31 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.7 — 2026-11-27
+
+### Added
+- Root-domain check: before anything else, the tool checks that the supplied
+  domain really is the organization's root.
+  - **Looks wrong:** not registered; parked or for sale; a registrar holding
+    page; the website redirects to another domain; or the homepage declares
+    its canonical address on another domain.
+  - **Advisory:** nameservers and mail run from another domain, or from a
+    same-brand domain (a parent organization?); or no website and no mail.
+  - **Suggested real root:** the redirect target, then the canonical
+    address, then the parent domain, listed with what corroborates it (or a
+    note that nothing does). It is also verified as a candidate.
+  - The run is never interrupted. Flagged in a red banner at the top and
+    bottom of the table, a top-level `root_check` object in JSON, a
+    `root_warning` column plus a first `seed` row in CSV, a stderr banner when
+    writing JSON or files, and exit code 3.
+- The homepage's canonical address (`<link rel="canonical">` / `og:url`) is
+  recorded for every domain.
+
+### Changed
+- CSV has a new last column, `root_warning`.
+- Exit code 3 when the supplied root looks wrong (previously always 0 on
+  success).
+
 ## 0.9.6 — 2026-11-27
 
 ### Added
