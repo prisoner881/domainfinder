@@ -104,11 +104,18 @@ async def run(
     resolver = Resolver(http, cache=cache, mode=settings.dns_mode)
     collectors = Collectors(http=http, resolver=resolver, rdap=RdapClient(http), tls_check=settings.tls_check,
                             whois=settings.whois)
+    from .sources.crtsh_db import CURRENT, CrtshDb
+
+    db = CrtshDb(limit=settings.crtsh_db_limit) if settings.crtsh_db else None
+    token = CURRENT.set(db)
     try:
         return await _run(seed, supplied, settings, collectors, user_orgs or [], extra_brands or [], only_sources,
                           skip_sources or [], extra_candidates or [], imported_candidates or [],
                           import_notes or [], max_candidates, progress)
     finally:
+        CURRENT.reset(token)
+        if db is not None:
+            await db.aclose()
         await http.aclose()
         cache.close()
 
@@ -291,6 +298,11 @@ async def _run(seed, supplied, settings, collectors, user_orgs, extra_brands, on
             verified_count += len(picked)
     if second or scorer.ct:
         results = score_all(scorer, items)
+    from .sources.crtsh_db import CURRENT
+
+    db = CURRENT.get()
+    if db is not None and (db.queries or db.fallbacks or db.disabled_reason):
+        ctx.notes.append(db.summary())
     return RunReport(
         seed=seed, seed_fingerprint=seed_fp, org_names=org_names, brand_labels=brand_labels,
         sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,

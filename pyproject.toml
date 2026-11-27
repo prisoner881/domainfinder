@@ -17,6 +17,7 @@ dependencies = [
     "cryptography>=42",
     "rich>=13",
     "python-dotenv>=1.0",
+    "psycopg[binary]>=3.1",  # crt.sh's public database (falls back to its web API without it)
 ]
 
 [project.optional-dependencies]

@@ -14,6 +14,14 @@ def no_network(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", guard)
     monkeypatch.setattr(socket, "getaddrinfo", guard)
 
+    # psycopg's binary driver connects from C, past the socket guard above.
+    async def no_db(self):
+        raise RuntimeError("database access in unit tests")
+
+    from domainfinder.sources.crtsh_db import CrtshDb
+
+    monkeypatch.setattr(CrtshDb, "_connect", no_db)
+
 
 def pytest_pyfunc_call(pyfuncitem):
     """Run `async def` tests with asyncio.run (no plugin needed)."""

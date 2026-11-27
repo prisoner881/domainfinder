@@ -110,7 +110,7 @@ Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
 * Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
 
-Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
+Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-crtsh-db`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
 
@@ -144,6 +144,16 @@ The same collector runs on the seed and on every candidate. It uses only passive
 * **Organization name**: taken from `--org`, the live certificate's `O=`, the `O=` of the seed's recent OV/EV certificates in CT logs (downloaded from crt.sh), a registrant org that isn't a privacy proxy, or a netblock owner whose name fits the brand (for example, the initials of "Automatic Data Processing" spell `adp`).
 
 DNS uses the system resolver. If the system resolver does not answer, it switches to DNS-over-HTTPS (dns.google, then Cloudflare).
+
+### crt.sh: database first, web API second
+
+Every crt.sh search (`crtsh-org`, `crtsh-san`, `acq-ct`, and the seed's organization name) goes first to crt.sh's public, read-only PostgreSQL database (`guest@crt.sh:5432`, database `certwatch`), using the same SQL crt.sh's own search runs. If that fails for any reason, the same search goes to crt.sh's web API.
+
+* **Why:** the web API stops every search at 10,000 rows and its front end is often overloaded (404/502/504). The database fetches only the columns needed and allows up to 50,000 rows per search (`DOMAINFINDER_CRTSH_DB_LIMIT`).
+* **Falling back:** a refused or blocked connection (many networks block outbound port 5432) turns the database off for the rest of the run after one attempt (about 10 seconds at most). A failed query falls back for that query only; two failed queries turn the database off. A missing `psycopg` driver also means web API only.
+* **What you see:** with `-v`, a note says how many searches the database answered and why it was turned off, if it was. `crtsh-org`'s truncation note names the limit that applied.
+* **Turning it off:** `--no-crtsh-db` or `DOMAINFINDER_CRTSH_DB=0`.
+* It is the same data from the same operator: when crt.sh is down entirely, both routes fail.
 
 ### 2. Candidate sources
 
@@ -256,6 +266,7 @@ Each file has one entry per line, and `#` starts a comment.
 ## Caching, etiquette and safety
 
 * Passive lookups only: DNS, RDAP, CT logs, one homepage fetch and one TLS handshake per domain. No port scanning.
+* crt.sh's database is used with one connection per run, one query at a time, as its read-only `guest` account intends.
 * The User-Agent identifies the tool. Each host gets its own concurrency limit and request spacing (crt.sh: 2 at a time, 1 s apart). On 429/5xx the tool backs off exponentially and honours `Retry-After` (capped at 60 s).
 * Responses are cached in an sqlite file under `~/.cache/domainfinder/` (`DOMAINFINDER_CACHE_DIR`). The default lifetime is 24 hours; RDAP and CT responses are kept 3 days and the IANA bootstrap files 7 days. Use `--no-cache` to bypass the cache.
 
@@ -264,7 +275,7 @@ Each file has one entry per line, and `#` starts a comment.
 * **Many acquisition domains are only reachable with reverse WHOIS, reverse NS or reverse MX**, which in practice means the paid sources. Expect the free version to miss some. The [`adp.com` sample run](adp-sample-run.md) shows which source would have found each miss.
 * **ccTLD RDAP is patchy.** Many ccTLDs have no public RDAP, or answer 403/404 (seen: .de, .es, .it, .co.jp, .ie, .be, .ch, .com.au). For those the tool relies on DNS, IP, certificate and redirect evidence alone. WHOIS over port 43 is used only for `.edu`, which has no RDAP; some networks block port 43, in which case `.edu` registrations are invisible too.
 * **Registrant data is usually redacted** to a region ("NJ, US"). `DNStination Inc.` is MarkMonitor's privacy proxy, not the owner. CSC goes further and writes its own name and Delaware address into the registrant fields of domains it manages. A registrant named after the registrar, a brand-protection registrar or a privacy service is therefore treated as a proxy: its name never counts as the owner's, and its region is ignored.
-* **crt.sh is slow and flaky** (502s on large queries) and caps a result set at 10,000 rows. Queries are retried and cached; failures show up under `-v` notes.
+* **crt.sh is slow and flaky.** Its web API answers large queries with 502s and caps a result set at 10,000 rows. The tool queries crt.sh's public database first (50,000 rows per search) and falls back to the web API; web queries are retried, everything is cached, and failures show up under `-v` notes. Networks that block outbound port 5432 get the web API only.
 * **Live TLS evidence needs a direct connection.** Behind a TLS-intercepting proxy, the certificate the tool sees is the proxy's. The tool notices (no CT timestamps) and skips live-certificate comparisons, saying so in the notes. The CT-log evidence (`crtsh-org`) still works.
 * **Bot protection** on some sites answers the homepage fetch with 403. The redirect chain up to that point is still used.
 * **Sites behind shared hosting and bot protection.** University athletics and campaign sites often run on shared hosts behind a bot-blocking firewall, with privacy-protected registrations. The tool then sees no shared infrastructure; when the seed's homepage links to such a domain and the name carries the brand, it lands in *needs review*.

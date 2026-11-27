@@ -5,6 +5,28 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.2.0 — 2026-11-27
+
+### Added
+- **crt.sh's public database first, its web API second.** Every crt.sh
+  search (`crtsh-org`, `crtsh-san`, `acq-ct`, the seed's organization name
+  and the certificates it is read from) first goes to crt.sh's read-only
+  PostgreSQL database (`guest@crt.sh:5432/certwatch`), using the same SQL
+  crt.sh's own search runs. Any failure sends that search to the web API as
+  before.
+  - Up to 50,000 rows per search instead of the web API's 10,000
+    (`DOMAINFINDER_CRTSH_DB_LIMIT`), so large organizations are no longer
+    truncated as often; the truncation note names the limit that applied.
+  - A refused or blocked connection (port 5432 is often blocked) turns the
+    database off for the rest of the run after one attempt; one failed query
+    falls back for that query, two turn the database off.
+  - One connection per run, one query at a time; results are cached like
+    the web API's.
+  - A `-v` note says how many searches the database answered, or why the
+    web API was used.
+  - `--no-crtsh-db` or `DOMAINFINDER_CRTSH_DB=0` for the web API only.
+- New dependency: `psycopg[binary]` (without it, the web API is used).
+
 ## 1.1.3 — 2026-11-27
 
 ### Fixed

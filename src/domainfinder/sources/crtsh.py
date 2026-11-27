@@ -35,7 +35,43 @@ def _variants(params: dict[str, str]) -> list[tuple[str, dict[str, str]]]:
     return out
 
 
-async def crtsh_json(http: Http, params: dict[str, str], timeout: float) -> list[dict] | None:
+WEB_CAP = 10_000  # crt.sh's web API stops every search at 10,000 identities
+
+
+class CtRows(list):
+    """crt.sh rows, with where they came from and whether the row limit cut them off."""
+
+    def __init__(self, rows=(), backend: str = "web", cap: int = WEB_CAP):
+        super().__init__(rows)
+        self.backend = backend
+        self.cap = cap
+
+    @property
+    def truncated(self) -> bool:
+        if self.backend == "database":  # exact: identities fetched vs the LIMIT
+            return sum(int(r.get("result_count") or 1) for r in self) >= self.cap
+        return len(self) >= self.cap - 10
+
+
+async def crtsh_json(http: Http, params: dict[str, str], timeout: float) -> CtRows | None:
+    """A crt.sh search: the public database first, the web API if that fails."""
+    from .crtsh_db import CURRENT
+
+    db = CURRENT.get()
+    if db is not None and not db.disabled_reason:
+        key = f"CTDB {db.limit} " + json.dumps(params, sort_keys=True)
+        cached = http.cache.get(key, CT_TTL)
+        if isinstance(cached, list):
+            return CtRows(cached, "database", db.limit)
+        rows = await db.search(params, timeout)
+        if rows is not None:
+            http.cache.set(key, rows)
+            return CtRows(rows, "database", db.limit)
+    rows = await _crtsh_web(http, params, timeout)
+    return None if rows is None else CtRows(rows, "web", WEB_CAP)
+
+
+async def _crtsh_web(http: Http, params: dict[str, str], timeout: float) -> list[dict] | None:
     last = ""
     for url, p in _variants(params):
         # Failures are never cached: crt.sh's 404s are transient, not "no data".
@@ -102,8 +138,9 @@ class CrtshOrgSource(Source):
                 if rows is None:
                     ctx.notes.append(f"crtsh-org: query O={org!r} {extra or ''} failed")
                     continue
-                if len(rows) >= 9990:
-                    ctx.notes.append(f"crtsh-org: O={org!r} hit crt.sh's 10,000-row cap; results truncated")
+                if rows.truncated:
+                    ctx.notes.append(f"crtsh-org: O={org!r} hit the {rows.cap:,}-row limit of crt.sh's "
+                                     f"{rows.backend}; results truncated")
                 collect_org_hits(rows, ctx.org_names, hits)
         hits.pop(ctx.seed.domain, None)
         ctx.ct_org_domains.update(hits)
@@ -167,15 +204,31 @@ async def seed_org_from_ct(http: Http, seed: str, timeout: float = 120.0, max_ce
             break
     orgs: Counter[str] = Counter()
 
-    async def one(cid):
-        r = await http.get(CRTSH, params={"d": str(cid)}, ttl=30 * 86400, timeout=60, retries=2, cache_404=False)
-        if not r.ok or "BEGIN CERTIFICATE" not in r.text:
-            return None
-        try:
-            from cryptography import x509
-            from cryptography.x509.oid import NameOID
+    from .crtsh_db import CURRENT
 
-            cert = x509.load_pem_x509_certificate(r.text.encode())
+    db = CURRENT.get()
+
+    async def one(cid):
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+
+        cert = None
+        if db is not None and not db.disabled_reason:
+            der = await db.certificate_der(int(cid))
+            if der:
+                try:
+                    cert = x509.load_der_x509_certificate(der)
+                except ValueError:
+                    cert = None
+        if cert is None:
+            r = await http.get(CRTSH, params={"d": str(cid)}, ttl=30 * 86400, timeout=60, retries=2, cache_404=False)
+            if not r.ok or "BEGIN CERTIFICATE" not in r.text:
+                return None
+            try:
+                cert = x509.load_pem_x509_certificate(r.text.encode())
+            except ValueError:
+                return None
+        try:
             o = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
             return str(o[0].value).strip() if o else None
         except (ValueError, IndexError):
