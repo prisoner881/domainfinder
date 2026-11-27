@@ -5,6 +5,15 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.1.2 — 2026-11-27
+
+### Fixed
+- **A held domain named exactly after the organization counts like the
+  brand.** automaticdataprocessing.com (held at the seed's brand-protection
+  registrar, same registrant region) stayed in "needs review" because its
+  name doesn't contain the brand label "adp". The organization's name run
+  together now counts, as an exact match only, never a partial one.
+
 ## 1.1.1 — 2026-11-27
 
 ### Fixed

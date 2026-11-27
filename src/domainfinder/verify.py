@@ -363,13 +363,15 @@ class Scorer:
         held = bool(set(fp.a) & self.data.holding_ips) or (
             bool(fp.ns) and all(self.data.is_holding_ns(h) for h in fp.ns)
         ) or bool(flags.get("registrar_redirect") and brand_registrar)
-        brand = self._brand_in(d)
+        org_label = self._org_name_label(d)
+        brand = self._brand_in(d) or org_label
         if held:
             flags["held"] = True
             if same_registrar and same_region and brand_registrar:
                 brand_org = any(e.kind == "brand_org" for e in ev)
                 if brand or hit or brand_org:
-                    why = ("brand name" if brand else "past certificates in the seed's name" if hit
+                    why = ("the seed organization's name" if org_label and not self._brand_in(d)
+                           else "brand name" if brand else "past certificates in the seed's name" if hit
                            else "registrant carries the brand name")
                     add("held_brand", S, f"held/inactive at the seed's brand-protection registrar, same registrant region, {why}")
                 else:
@@ -487,6 +489,16 @@ class Scorer:
         or 'Aéroports de Paris' do not start with the brand and stay conflicts."""
         toks = normalize(org).split()
         return bool(toks) and any(len(b) >= 3 and toks[0] == b for b in self.seed.brand_labels)
+
+    def _org_name_label(self, domain: str) -> str:
+        """The domain is exactly the seed organization's name run together
+        (automaticdataprocessing.com for 'Automatic Data Processing, Inc.')."""
+        lab = label(domain)
+        for o in self.seed.org_names:
+            slug = "".join(normalize(o).split())
+            if len(slug) >= 6 and slug.isalnum() and lab == slug:
+                return slug
+        return ""
 
     def _brand_in(self, domain: str) -> str:
         lab = label(domain)

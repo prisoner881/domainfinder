@@ -143,3 +143,20 @@ async def test_edgar_finds_an_oddly_named_exhibit21_through_the_filing_index():
     out = await EdgarSource(Settings(sec_user_agent="Example Corp research@example.org")).candidates(ctx)
     assert [c.domain for c in out] == ["workforcesoftware.com"]
     await http.aclose()
+
+
+# --- held domain named exactly after the organization ----------------------------------------
+
+def test_held_domain_named_after_the_organization_counts_like_the_brand():
+    from domainfinder.verify import Scorer, SeedProfile
+    from helpers import seed_fp
+
+    s = Scorer(SeedProfile.build(seed_fp(), ["Automatic Data Processing, Inc."], ["adp"]))
+    held = dict(rdap=rdap(), ns=["ns1.markmonitor.com", "ns2.markmonitor.com"])
+    r = s.score(fp("automaticdataprocessing.com", **held), cand("automaticdataprocessing.com"), set())
+    assert "held_brand" in {e.kind for e in r.evidence}
+    assert any("the seed organization's name" in e.detail for e in r.evidence)
+    assert r.classification is C.OWNED
+    # a name that merely contains part of the organization's name gets no such credit
+    r = s.score(fp("dataprocessingsolutions.com", **held), cand("dataprocessingsolutions.com"), set())
+    assert "held_brand" not in {e.kind for e in r.evidence} and r.classification is not C.OWNED
