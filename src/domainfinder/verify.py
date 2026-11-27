@@ -704,6 +704,10 @@ class Scorer:
                                    "only a redirect and the name link it to the seed (anyone can redirect a domain)"))
                 return min(score, self.high - 1), Classification.REVIEW, status
         if score >= self.high and strong and control:
+            client = self._operated_for_client(fp, ev, control_kinds)
+            if client:
+                ev.append(Evidence("operated_for_client", Strength.INFO, 0, client))
+                return min(score, self.high - 1), Classification.REVIEW, status
             return score, Classification.OWNED, status
         if strong and not control and score >= self.review:
             # Registration similarity alone: probable, not proven. Automated
@@ -715,6 +719,34 @@ class Scorer:
         if score >= self.review and (strong or any(e.strength is Strength.MEDIUM for e in ev)):
             return min(score, self.high - 1), Classification.REVIEW, status
         return min(score, self.review - 1), Classification.REJECTED, status
+
+    def _operated_for_client(self, fp: Fingerprint, ev: list[Evidence], control_kinds: set[str]) -> str:
+        """A site the seed hosts for someone else: the seed's certificate (and
+        services such as its mail relay) on a domain registered by another
+        party. Returns the reason, or "" when it does not apply.
+
+        Applies only when the seed's certificate is the only evidence of
+        control, nothing ties the domain's DNS, network, inbound mail,
+        verification tokens or registration to the seed, the registration is
+        published, and it is at a different registrar than the seed's. A
+        domain carrying the seed's brand is exempt: clients don't name their
+        domains after their vendor."""
+        if not control_kinds or not control_kinds <= {"cert_org", "ct_org_current"}:
+            return ""
+        if any(e.points > 0 and channel_of(e.kind) in ("delegation", "zone", "hosting", "token", "registration")
+               for e in ev):
+            return ""
+        if any(e.kind == "brand_label" for e in ev):
+            return ""
+        sr, cr = self.seed.fp.rdap, fp.rdap
+        if not (cr.available and cr.registrar and sr.registrar):
+            return ""
+        same = (sr.registrar_iana_id and sr.registrar_iana_id == cr.registrar_iana_id) or (
+            normalize(sr.registrar) == normalize(cr.registrar))
+        if same:
+            return ""
+        return (f"likely a site the organization runs for a client: its certificate, but registered by someone else "
+                f"at {cr.registrar} (the seed uses {sr.registrar}) with no DNS, network or registration link")
 
     def status(self, fp: Fingerprint, flags: dict) -> str:
         if fp.registered is False:

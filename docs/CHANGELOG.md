@@ -5,6 +5,21 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.5.1 — 2026-11-27
+
+### Fixed
+- **Client sites the seed hosts were listed as the seed's own.** A
+  financial-technology processor's run listed about 25 credit unions' and
+  banks' main domains as owned: the processor hosts their websites (its
+  certificate) and sends their mail (its servers in their SPF), but the
+  credit unions registered the domains themselves at other registrars. When
+  the seed's certificate is the only evidence of control, nothing ties the
+  domain's DNS, network, inbound mail, verification tokens or registration
+  to the seed, and the published registration is at a different registrar,
+  the domain now stops at needs review with an `operated_for_client` note.
+  Domains the seed registered itself stay owned; brand-named domains and
+  domains without published registration data are not affected.
+
 ## 1.5.0 — 2026-11-27
 
 ### Changed
