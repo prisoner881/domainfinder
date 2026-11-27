@@ -49,6 +49,7 @@ class Settings:
     tls_check: bool = True
     whoisxml_search: str = "both"  # current | historic | both
     whoisxml_max_pages: int = 1  # purchase pages (10,000 domains, 1 credit each) per search
+    csp_discovery: bool = True  # one hop: domains in the CSP of owned/review domains become candidates
     all_tlds: bool = False  # gtld sweep over every TLD (IANA list) instead of the common ones
     whois: bool = True  # port-43 WHOIS fallback for TLDs without RDAP (.edu)
     crtsh_timeout: float = 120.0
@@ -81,6 +82,7 @@ class Settings:
             domaintools_key=_env("DOMAINTOOLS_API_KEY"),
             whois=_bool("DOMAINFINDER_WHOIS", True),
             all_tlds=_bool("DOMAINFINDER_ALL_TLDS", False),
+            csp_discovery=_bool("DOMAINFINDER_CSP", True),
             whoisxml_search=_env("DOMAINFINDER_WHOISXML_SEARCH", "both").lower() or "both",
             whoisxml_max_pages=_int("DOMAINFINDER_WHOISXML_MAX_PAGES", 1),
             idn="punycode" if _env("DOMAINFINDER_IDN").lower() == "punycode" else "unicode",

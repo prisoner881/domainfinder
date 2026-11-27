@@ -50,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, help="candidates fingerprinted in parallel")
     p.add_argument("--dns", choices=["auto", "system", "doh"], help="DNS mode (default auto)")
     p.add_argument("--no-tls", action="store_true", help="skip live TLS certificate checks")
+    p.add_argument("--no-csp", action="store_true",
+                   help="do not turn domains named in the CSP of owned/review domains into candidates")
     p.add_argument("--no-whois", action="store_true", help="skip the port-43 WHOIS fallback (.edu)")
     p.add_argument("--no-cache", action="store_true", help="ignore and do not write the on-disk cache")
     p.add_argument("--cache-ttl", type=int, help="cache lifetime in hours (default 24)")
@@ -90,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         settings.tls_check = False
     if args.no_whois:
         settings.whois = False
+    if args.no_csp:
+        settings.csp_discovery = False
     if args.all_tlds:
         settings.all_tlds = True
     if args.whoisxml_search:

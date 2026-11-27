@@ -206,17 +206,54 @@ async def _run(seed, settings, collectors, user_orgs, extra_brands, only_sources
                 log.exception("fingerprint %s failed", c.domain)
                 fp = Fingerprint(domain=c.domain, errors=[f"{type(e).__name__}: {e}"])
         done += 1
-        tick("verifying candidates", done, len(cands))
+        tick(stage, done, stage_total)
         return fp, c
 
-    items = await asyncio.gather(*(fp_one(c) for c in cands))
+    stage, stage_total = "verifying candidates", len(cands)
+    items = list(await asyncio.gather(*(fp_one(c) for c in cands)))
     profile = SeedProfile.build(seed_fp, org_names, brand_labels)
     profile.ns_shared_override = ns_shared
     scorer = Scorer(profile, settings.high_threshold, settings.review_threshold,
                     ctx.ct_org_domains, ctx.subsidiary_names)
-    results = score_all(scorer, list(items))
+    results = score_all(scorer, items)
+    verified_count = len(cands)
+
+    # One hop out: domains named in the Content-Security-Policy of owned and
+    # needs-review domains become candidates, verified like any other.
+    use_csp = settings.csp_discovery and "csp" not in skip_sources and (not only_sources or "csp" in only_sources)
+    if use_csp:
+        new = csp_candidates(results, {c.domain for c in cands} | {seed}, seed)
+        budget = max(0, max_candidates - len(cands))
+        if new:
+            picked = new[:budget]
+            ctx.notes.append(f"csp: {len(new)} new candidate(s) named in the Content-Security-Policy of owned or "
+                             f"needs-review domains" + (f"; verifying {len(picked)} (--max-candidates)"
+                                                         if len(picked) < len(new) else ""))
+            if picked:
+                done, stage, stage_total = 0, "verifying CSP candidates", len(picked)
+                items += list(await asyncio.gather(*(fp_one(c) for c in picked)))
+                results = score_all(scorer, items)
+                total += len(new)
+                verified_count += len(picked)
+                used.append("csp")
+    elif not settings.csp_discovery:
+        disabled["csp"] = "turned off (--no-csp)"
     return RunReport(
         seed=seed, seed_fingerprint=seed_fp, org_names=org_names, brand_labels=brand_labels,
         sources_used=used, sources_disabled=disabled, notes=ctx.notes, results=results,
-        candidates_total=total, candidates_verified=len(cands), http_stats=dict(collectors.http.stats),
+        candidates_total=total, candidates_verified=verified_count, http_stats=dict(collectors.http.stats),
     )
+
+
+def csp_candidates(results: list[Result], known: set[str], seed: str) -> list[Candidate]:
+    """Candidates from the CSP headers of owned and needs-review results (one hop)."""
+    from .sources.base import make_candidates
+
+    found: dict[str, Candidate] = {}
+    for r in sorted(results, key=lambda r: (r.classification is not Classification.OWNED, r.domain)):
+        if r.classification not in (Classification.OWNED, Classification.REVIEW) or r.fingerprint is None:
+            continue
+        for c in make_candidates(r.fingerprint.web.csp_domains, "csp", seed, f"named in the CSP of {r.domain}"):
+            if c.domain not in known and c.domain not in found:
+                found[c.domain] = c
+    return list(found.values())

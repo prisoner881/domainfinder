@@ -8,7 +8,7 @@ domainfinder adp.com
 
 No public source lists everything a company owns, so the tool does not try to be complete. It aims for **precision**: a domain reaches the main list only when independent evidence ties it to the seed. A domain that only *looks* related goes to a separate **needs review** list (for example, a name match plus a parking page). It never reaches the main list.
 
-Current version: **0.9.4** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.4` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
+Current version: **0.9.5** (see [CHANGELOG.md](CHANGELOG.md)). Every run starts by printing `domainfinder 0.9.5` (on stderr, so `--json` output stays clean); `domainfinder --version` prints the same.
 
 Free sources work out of the box. WhoisXML API's reverse WHOIS turns on with an API key (a free account includes 500 credits). SecurityTrails and DomainTools are built in as switched-off stubs that turn on once their keys are configured.
 
@@ -76,7 +76,7 @@ Some domains use non-Latin scripts: `adp.信息` is ADP's domain under `.信息`
 * CSV files are written as UTF-8 with a byte-order mark, so Excel displays `信息` correctly. The raw `fingerprint` objects in JSON keep the ASCII form, since they record DNS data as DNS returned it.
 * Unicode input works too: `domainfinder adp.信息` or `--candidate adp.信息`.
 
-Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
+Other options: `--all-tlds` (sweep every TLD, not just the common ones), `--brand` (extra brand labels for the ccTLD sweep), `--sources` / `--skip` (pick sources), `--max-candidates` (default 1000), `--concurrency`, `--dns auto|system|doh`, `--no-tls`, `--no-whois`, `--no-csp`, `--no-cache`, `--cache-ttl HOURS`, `--high-threshold`, `--review-threshold`, `--no-hackertarget`, `--debug`.
 
 Output has three sections:
 
@@ -120,6 +120,7 @@ DNS uses the system resolver. If the system resolver does not answer, it switche
 | `cctld` | ✓ | The brand label on ~80 country-code suffixes (`data/cctlds.txt`). An NS/SOA lookup first; only registered names go on to verification. |
 | `gtld` | ✓ | The brand label on ~35 common generic TLDs (`data/gtlds.txt`: `.net`, `.org`, `.info`, `.biz`, `.io`, `.ai`, `.app`, `.dev`, …), checked the same way. `--all-tlds` uses IANA's list of every TLD instead (about 1,400, fetched live and cached for a week). |
 | `seed-links` | ✓ | Domains linked from the seed's homepage, its CSP header and its live certificate. |
+| `csp` | ✓ | A second pass, one hop out: domains named in the Content-Security-Policy of owned and needs-review domains become candidates and are verified like any other. Turn it off with `--no-csp`. |
 | `edgar` | ✓ | SEC EDGAR Exhibit 21 subsidiaries → `<name>.com` guesses. Needs `DOMAINFINDER_SEC_USER_AGENT` (SEC policy). |
 | `hackertarget` | ✓ | Reverse NS (`findshareddns`). For managed-DNS pools it intersects several of the seed's NS hosts, which approximates "same NS set". Small daily quota; turn it off with `--no-hackertarget`. |
 | `viewdns` | free key | Reverse NS and reverse MX. Needs `VIEWDNS_API_KEY`. |
@@ -143,6 +144,8 @@ Each rule adds an evidence item with points (the weights are in `verify.py → W
 | RDAP registrant org matches | strong | 60 |
 | CT: a current certificate with `O=` the seed's org | strong | 45 |
 | CT: only expired certificates with that `O=` (divested? e.g. broadridge.com) | weak | 15 |
+| The candidate's own Content-Security-Policy trusts two or more domains that are the seed or already verified | strong | 50 |
+| Its CSP trusts only the seed, and the name carries the brand / and it doesn't | medium / weak | 35 / 10 |
 | Same analytics/tag ID | medium | 25 |
 | SPF includes the seed's own include / a shared org-specific include | medium | 35 / 20 |
 | SOA contact at the seed's domain | medium | 25 |

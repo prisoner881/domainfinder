@@ -46,6 +46,9 @@ WEIGHTS = {
     "subsidiary": 10,
     "seed_link": 5,
     "seed_link_brand": 35,
+    "csp_trust": 50,
+    "csp_trust_brand": 35,
+    "csp_trust_one": 10,
     "parked": -50,
     "different_org_rdap": -40,
     "different_org_cert": -20,
@@ -259,6 +262,18 @@ class Scorer:
                 add("ct_org_current", S, f"CT: current certificate O={hit.org} (valid to {hit.latest_not_after[:10]})")
             else:
                 add("ct_org_historic", W, f"CT: only expired certificates O={hit.org} (last {hit.latest_not_after[:10]})")
+
+        # --- the candidate's own Content-Security-Policy ---------------------------
+        # A site's CSP lists what its operator trusts. Trusting the seed and
+        # other verified domains links the operators; trusting just the seed can
+        # also mean "customer embeds the vendor", hence the graded weights.
+        trusted = sorted({x for x in fp.web.csp_domains if x != d and self._ours(x, verified)})
+        if len(trusted) >= 2:
+            add("csp_trust", S, f"its Content-Security-Policy trusts {', '.join(trusted[:4])}")
+        elif trusted and self._brand_in(d):
+            add("csp_trust_brand", M, f"its Content-Security-Policy trusts {trusted[0]} and the name carries the brand")
+        elif trusted:
+            add("csp_trust_one", W, f"its Content-Security-Policy trusts {trusted[0]}")
 
         # --- web tags -------------------------------------------------------------
         ids = set(seed.web.analytics_ids) & set(fp.web.analytics_ids)

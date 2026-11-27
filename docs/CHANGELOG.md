@@ -3,6 +3,20 @@
 All notable changes to domainfinder. Versions follow `0.9.x`: every change
 gets the next patch number.
 
+## 0.9.5 — 2026-11-27
+
+### Added
+- A candidate's own Content-Security-Policy is now evidence. A CSP that
+  trusts two or more domains that are the seed or already verified is
+  strong; trusting only the seed is medium on a brand-named domain and weak
+  otherwise (customers sometimes whitelist a vendor's domains). Example:
+  `jamfcloud.com` trusts `jamf.com` and `jamfsoftware.com`.
+- CSP discovery, one hop out: domains named in the CSP of owned and
+  needs-review domains become candidates, are verified like any other, and
+  scoring runs again. It counts toward `--max-candidates`; `--no-csp` (or
+  `DOMAINFINDER_CSP=0`) turns it off. Example: `jamf.com` without `--org`
+  now finds `jamfsoftware.com` (owned) and `jamf.one` (needs review).
+
 ## 0.9.4 — 2026-11-27
 
 ### Added
