@@ -710,10 +710,18 @@ class Scorer:
                 return min(score, self.high - 1), Classification.REVIEW, status
             return score, Classification.OWNED, status
         if strong and not control and score >= self.review:
-            # Registration similarity alone: probable, not proven. Automated
+            # Association without control: probable, not proven. Automated
             # consumers treat "owned" as near-certain.
-            ev.append(Evidence("registration_only", Strength.INFO, 0,
-                               "no evidence that the organization operates it (registration similarity only)"))
+            chans = {channel_of(e.kind) for e in ev if e.strength is Strength.STRONG and e.points > 0}
+            if chans <= {"registration"}:
+                ev.append(Evidence("registration_only", Strength.INFO, 0,
+                                   "no evidence that the organization operates it (registration similarity only)"))
+            else:
+                what = {"website": "links, Content-Security-Policy or tags on its website",
+                        "registration": "registration similarity"}
+                found = ", ".join(what.get(c, f"{c} evidence") for c in sorted(chans))
+                ev.append(Evidence("no_control", Strength.INFO, 0,
+                                   f"no evidence that the organization operates it (only {found})"))
         if score >= self.high and strong:
             return min(score, self.high - 1), Classification.REVIEW, status
         if score >= self.review and (strong or any(e.strength is Strength.MEDIUM for e in ev)):

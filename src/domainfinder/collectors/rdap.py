@@ -226,6 +226,33 @@ def _join(base: str, path: str) -> str:
     return base.rstrip("/") + "/" + path.lstrip("/")
 
 
+def rdap_object(r, cls: str, need_entities: bool = False) -> bool:
+    """A real RDAP object of class `cls` ('domain', 'ip network'), not an error
+    or a stub that a rate-limited server answered with HTTP 200. Only such
+    answers are cached; anything else is treated as a failed lookup."""
+    try:
+        d = r.json()
+    except ValueError:
+        return False
+    if not isinstance(d, dict) or d.get("errorCode"):
+        return False
+    if str(d.get("objectClassName", "")).lower() != cls:
+        return False
+    return not need_entities or bool(d.get("entities"))
+
+
+def registrar_answer(r) -> bool:
+    return rdap_object(r, "domain", need_entities=True)
+
+
+def domain_answer(r) -> bool:
+    return rdap_object(r, "domain")
+
+
+def ip_answer(r) -> bool:
+    return rdap_object(r, "ip network")
+
+
 class RdapClient:
     def __init__(self, http: Http):
         self.http = http
@@ -239,7 +266,7 @@ class RdapClient:
         info = RdapInfo()
         base = await self.bootstrap.domain_base(domain)
         url = _join(base, f"domain/{domain}") if base else f"{RDAP_ORG}/domain/{domain}"
-        r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
+        r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=domain_answer)
         if r.status == 404:
             info.error = "not found in RDAP"
             return info
@@ -256,17 +283,12 @@ class RdapClient:
             return info
         # The registrar's RDAP often carries registrant fields the registry lacks.
         for href in related_links(data, r.url)[:1]:
-            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
-            if not rr.ok:
+            rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=registrar_answer)
+            if rr.ok and registrar_answer(rr):
+                parse_domain(rr.json(), info, urlsplit(rr.url).hostname or href)
+            else:
                 self.registrar_failures[urlsplit(href).hostname or href] += 1
                 self._retry.append((href, info))
-            if rr.ok:
-                try:
-                    rel = rr.json()
-                    if isinstance(rel, dict) and not rel.get("errorCode"):
-                        parse_domain(rel, info, urlsplit(rr.url).hostname or href)
-                except ValueError:
-                    pass
         parse_domain(data, info, urlsplit(r.url).hostname or url)
         return info
 
@@ -285,15 +307,9 @@ class RdapClient:
             for i, (href, info) in enumerate(items[:per_host]):
                 if i:
                     await asyncio.sleep(spacing)
-                rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=json_answer)
-                if not rr.ok:
-                    continue
-                try:
-                    rel = rr.json()
-                except ValueError:
-                    continue
-                if isinstance(rel, dict) and not rel.get("errorCode"):
-                    parse_domain(rel, info, urlsplit(rr.url).hostname or href)
+                rr = await self.http.get_follow(href, headers=ACCEPT, ttl=RDAP_TTL, retries=2, valid=registrar_answer)
+                if rr.ok and registrar_answer(rr):
+                    parse_domain(rr.json(), info, urlsplit(rr.url).hostname or href)
                     self.registrar_failures[host] -= 1
                     done += 1
             if self.registrar_failures[host] <= 0:
@@ -320,7 +336,7 @@ class RdapClient:
                 return hit
             base = await self.bootstrap.ip_base(ip)
             url = _join(base, f"ip/{ip}") if base else f"{RDAP_ORG}/ip/{ip}"
-            r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL * 2, retries=2, valid=json_answer)
+            r = await self.http.get_follow(url, headers=ACCEPT, ttl=RDAP_TTL * 2, retries=2, valid=ip_answer)
             if not r.ok:
                 return None
             try:

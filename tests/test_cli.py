@@ -4,22 +4,22 @@ from domainfinder import BANNER, __version__
 from domainfinder.cli import main
 
 
-def test_version_is_1_5_2():
-    assert __version__ == "1.5.2"
-    assert BANNER == "domainfinder 1.5.2"
+def test_version_is_1_5_3():
+    assert __version__ == "1.5.3"
+    assert BANNER == "domainfinder 1.5.3"
 
 
 def test_every_run_announces_name_and_version_on_stderr(capsys):
     assert main(["--list-sources"]) == 0
     out, err = capsys.readouterr()
-    assert err.splitlines()[0] == "domainfinder 1.5.2"
-    assert "domainfinder 1.5.2" not in out  # stdout stays clean (matters for --json)
+    assert err.splitlines()[0] == "domainfinder 1.5.3"
+    assert "domainfinder 1.5.3" not in out  # stdout stays clean (matters for --json)
 
 
 def test_version_flag(capsys):
     with pytest.raises(SystemExit):
         main(["--version"])
-    assert capsys.readouterr().out.strip() == "domainfinder 1.5.2"
+    assert capsys.readouterr().out.strip() == "domainfinder 1.5.3"
 
 
 def test_banner_on_a_terminal_is_framed_and_names_the_tool():
@@ -32,7 +32,7 @@ def test_banner_on_a_terminal_is_framed_and_names_the_tool():
     buf = io.StringIO()
     render(Console(file=buf, force_terminal=True, width=100, color_system="truecolor"))
     out = buf.getvalue()
-    assert "domainfinder" in out and "v1.5.2" in out
+    assert "domainfinder" in out and "v1.5.3" in out
     assert "Finds the other domains an organization owns" in out and "passive, public lookups only" in out
     assert "╭" in out and "\x1b[" in out  # framed and coloured
 
@@ -46,7 +46,7 @@ def test_banner_off_a_terminal_is_the_plain_line():
 
     buf = io.StringIO()
     render(Console(file=buf, force_terminal=False))
-    assert buf.getvalue() == "domainfinder 1.5.2\n"
+    assert buf.getvalue() == "domainfinder 1.5.3\n"
 
 
 def test_root_banner_is_copied_to_stderr_only_when_not_already_visible():

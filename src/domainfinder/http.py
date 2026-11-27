@@ -248,7 +248,10 @@ class Http:
         if store:
             cached = self.cache.get(key, ttl)
             if cached is not None:
-                return Response.from_cache(cached)
+                hit = Response.from_cache(cached)
+                # Answers cached by an older version were not checked: re-check.
+                if not (hit.ok and valid is not None and not valid(hit)):
+                    return hit
         resp = await self._request(url, params=params, headers=headers, timeout=timeout, retries=retries)
         cacheable = (301, 302, 303, 307, 308, 404) if cache_404 else (301, 302, 303, 307, 308)
         good = bool(resp.status) and (resp.ok or resp.status in cacheable or cache_errors)

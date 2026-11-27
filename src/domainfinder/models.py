@@ -17,7 +17,7 @@ class Strength(str, Enum):
 
 # Notes that say why a high score was held back from the main list. They carry
 # no points but are always shown (table, CSV), so the reason is never hidden.
-CAP_NOTES = ("registration_only", "redirect_only", "operated_for_client")
+CAP_NOTES = ("registration_only", "no_control", "redirect_only", "operated_for_client")
 
 
 @dataclass

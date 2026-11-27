@@ -5,6 +5,25 @@ All notable changes to domainfinder.
 Versioning: bug fixes bump the last number (1.0.1, 1.0.2, …); significant new
 features bump the middle number (1.1.0, 1.2.0, …) and reset the last.
 
+## 1.5.3 — 2026-11-27
+
+### Fixed
+- **Registrar evidence missing in run after run.** A few domains lost their
+  registrant contact emails identically across runs. A registrar that is
+  rate limiting can answer with HTTP 200 and a body that is valid JSON but
+  not a domain record; such an answer passed the cache check, was stored
+  for 3 days and replayed. RDAP answers are now cached only when they are
+  real RDAP objects (a domain record, with entities for a registrar's
+  answer; an IP network for IP lookups); anything else counts as a failed
+  lookup and gets the slower second try. Cached answers are re-checked
+  before use, so stubs stored by earlier versions are ignored.
+- **A misleading review note.** A domain whose strong evidence is on its
+  website (for example a Content-Security-Policy trusting the seed's
+  domains) was labeled "registration similarity only". It now gets a
+  `no_control` note naming the evidence ("only links, Content-Security-Policy
+  or tags on its website"); `registration_only` is kept for registration
+  similarity.
+
 ## 1.5.2 — 2026-11-27
 
 ### Fixed
